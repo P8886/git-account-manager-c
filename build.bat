@@ -15,7 +15,7 @@ if %errorlevel% equ 0 (
     )
 
     :: 编译主程序
-    gcc main.c logic.c ui_draw.c ui_gen_key.c resource.o -o GitManager.exe -mwindows -Os -s -ffunction-sections -fdata-sections -fno-ident -fno-asynchronous-unwind-tables -Wl,--gc-sections -luser32 -lkernel32 -lgdi32 -lcomdlg32 -lshell32 -ldwmapi
+    gcc main.c logic.c ui_draw.c ui_gen_key.c resource.o -o GitAccountManager.exe -mwindows -Os -s -ffunction-sections -fdata-sections -fno-ident -fno-asynchronous-unwind-tables -Wl,--gc-sections -luser32 -lkernel32 -lgdi32 -lcomdlg32 -lshell32 -ldwmapi
     
     :: 清理资源对象文件
     if exist resource.o del resource.o
@@ -37,7 +37,7 @@ if %errorlevel% equ 0 (
     )
 
     :: 编译主程序
-    cl main.c logic.c ui_draw.c ui_gen_key.c resource.res /Fe:GitManager.exe /O1 /MD /link /SUBSYSTEM:WINDOWS user32.lib kernel32.lib gdi32.lib comdlg32.lib shell32.lib dwmapi.lib /OPT:REF /OPT:ICF
+    cl main.c logic.c ui_draw.c ui_gen_key.c resource.res /Fe:GitAccountManager.exe /O1 /MD /link /SUBSYSTEM:WINDOWS user32.lib kernel32.lib gdi32.lib comdlg32.lib shell32.lib dwmapi.lib /OPT:REF /OPT:ICF
     
     :: 清理资源 res 文件
     if exist resource.res del resource.res
@@ -54,10 +54,10 @@ pause
 exit /b 1
 
 :success
-if exist GitManager.exe (
+if exist GitAccountManager.exe (
     echo Build successful!
     echo Running...
-    start GitManager.exe
+    start GitAccountManager.exe
 ) else (
     echo Build failed.
     pause

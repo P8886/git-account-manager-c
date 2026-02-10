@@ -660,11 +660,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wc.lpszClassName = L"GitAccountManagerC";
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(101)); // 加载图标 (ID 101)
 
     RegisterClassW(&wc);
 
     // 调整窗口大小 (增加宽度和高度以适应更宽松的布局)
-    HWND hwnd = CreateWindowW(L"GitAccountManagerC", L"Git Account Manager (C Version)",
+    HWND hwnd = CreateWindowW(L"GitAccountManagerC", L"Git Account Manager",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 640, 480,
         NULL, NULL, hInstance, NULL);
