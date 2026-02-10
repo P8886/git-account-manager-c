@@ -382,15 +382,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // 全局操作区
         CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE, rightX, y, rightWidth, 38, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
         
-        // 顶部夜间模式切换按钮 (小图标)
-        HWND hBtnTheme = CreateWindowW(L"BUTTON", L"🌙", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
-            540, 10, 30, 30, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
-        SendMessageW(hBtnTheme, WM_SETFONT, (WPARAM)hFont, TRUE);
-
         // 状态栏
         hStatus = CreateWindowW(L"STATIC", L"Ready", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_SUNKEN, 
-            0, 395, 590, 25, hwnd, (HMENU)ID_STATUS, NULL, NULL);
+            0, 395, 535, 25, hwnd, (HMENU)ID_STATUS, NULL, NULL);
         SendMessageW(hStatus, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+        // 底部夜间模式切换按钮 (小图标)
+        HWND hBtnTheme = CreateWindowW(L"BUTTON", L"🌙", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
+            540, 392, 30, 30, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
+        SendMessageW(hBtnTheme, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         // 设置全局字体
         EnumChildWindows(hwnd, (WNDENUMPROC)(void*)SendMessageW, (LPARAM)WM_SETFONT);
@@ -530,13 +530,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         else if (id == ID_BTN_DELETE) {
             if (strlen(currentEditID) > 0) {
-                // 使用 ShowMessage 的确认框逻辑比较复杂，因为 ShowMessage 是模态且只用于显示
-                // 这里暂时保持 MessageBoxW 用于确认，或者我们可以扩展 ShowMessage 支持返回值
-                // 为了简单，我们使用 MessageBoxW，但注意它可能不是居中的。
-                // 如果用户非常介意，我们可以实现 ConfirmDialog。
-                // 鉴于用户只抱怨了成功提示，我们暂时保留 MessageBoxW 用于删除确认，
-                // 或者我们可以快速实现一个 ConfirmDialog。
-                // 考虑到时间，我们先用 MessageBoxW，如果不满意再改。
                 if (MessageBoxW(hwnd, L"确定要删除此账户吗？", L"确认", MB_YESNO | MB_ICONWARNING) == IDYES) {
                     int found = -1;
                     for (int i = 0; i < config.account_count; i++) {
