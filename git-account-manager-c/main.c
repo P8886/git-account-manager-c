@@ -48,6 +48,9 @@ void MySetWindowTheme(HWND hwnd, LPCWSTR appName, LPCWSTR idList) {
     }
 }
 
+// 前向声明
+void DrawButton(LPDRAWITEMSTRUCT pDIS);
+
 // --- UTF-8 与 WideChar 转换辅助函数 ---
 
 wchar_t* U8ToW(const char* utf8) {
@@ -111,6 +114,107 @@ void UpdateStatus() {
     char buffer[512];
     snprintf(buffer, sizeof(buffer), "当前全局身份: %s <%s>", name, email);
     SetWindowTextW(hStatus, U8ToW(buffer));
+}
+
+// 设置 DWM 沉浸式暗黑模式标题栏
+void SetTitleBarTheme(HWND hwnd, BOOL dark); // Forward declaration
+
+// --- 自定义消息框 (居中且支持暗黑模式) ---
+#define ID_BTN_MSG_OK 201
+
+LRESULT CALLBACK MsgBoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        HFONT hFont = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+        
+        // 获取传入的文本
+        CREATESTRUCT* pCreate = (CREATESTRUCT*)lParam;
+        LPCWSTR text = (LPCWSTR)pCreate->lpCreateParams;
+        
+        // 内容文本
+        HWND hStatic = CreateWindowW(L"STATIC", text, WS_CHILD | WS_VISIBLE | SS_CENTER, 
+            20, 30, 260, 60, hwnd, NULL, NULL, NULL);
+        SendMessageW(hStatic, WM_SETFONT, (WPARAM)hFont, TRUE);
+        
+        // OK 按钮
+        HWND hBtn = CreateWindowW(L"BUTTON", L"确定", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
+            100, 100, 100, 32, hwnd, (HMENU)ID_BTN_MSG_OK, NULL, NULL);
+        SendMessageW(hBtn, WM_SETFONT, (WPARAM)hFont, TRUE);
+        break;
+    }
+    case WM_COMMAND: {
+        if (LOWORD(wParam) == ID_BTN_MSG_OK) {
+            DestroyWindow(hwnd);
+        }
+        break;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT);
+        if (isDarkMode) {
+            SetTextColor(hdc, RGB(220, 220, 220));
+            SetBkColor(hdc, RGB(32, 32, 32));
+            return (LRESULT)hBrushDark;
+        }
+        return (LRESULT)GetStockObject(NULL_BRUSH);
+    }
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT pDIS = (LPDRAWITEMSTRUCT)lParam;
+        if (pDIS->CtlType == ODT_BUTTON) {
+            DrawButton(pDIS);
+            return TRUE;
+        }
+        break;
+    }
+    case WM_ERASEBKGND: {
+        HDC hdc = (HDC)wParam;
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        FillRect(hdc, &rc, isDarkMode ? hBrushDark : hBrushLight);
+        return 1;
+    }
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        break;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+void ShowMessage(HWND owner, LPCWSTR text, LPCWSTR title) {
+    WNDCLASSW wc = {0};
+    wc.lpfnWndProc = MsgBoxProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = L"GitManagerMsgBox";
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    RegisterClassW(&wc);
+
+    int width = 300;
+    int height = 180;
+    
+    // 计算居中位置
+    RECT rcOwner;
+    GetWindowRect(owner, &rcOwner);
+    int x = rcOwner.left + (rcOwner.right - rcOwner.left - width) / 2;
+    int y = rcOwner.top + (rcOwner.bottom - rcOwner.top - height) / 2;
+
+    HWND hMsgBox = CreateWindowW(L"GitManagerMsgBox", title, WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU,
+        x, y, width, height, owner, NULL, GetModuleHandle(NULL), (LPVOID)text);
+
+    // 设置主题
+    SetTitleBarTheme(hMsgBox, isDarkMode);
+    
+    // 模态循环
+    EnableWindow(owner, FALSE);
+    
+    MSG msg;
+    while (IsWindow(hMsgBox) && GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    
+    EnableWindow(owner, TRUE);
+    SetForegroundWindow(owner);
 }
 
 // 设置 DWM 沉浸式暗黑模式标题栏
@@ -385,7 +489,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             char sshBuf[PATH_LEN]; strcpy(sshBuf, ssh);
 
             if (strlen(nameBuf) == 0 || strlen(emailBuf) == 0) {
-                MessageBoxW(hwnd, L"用户名和邮箱不能为空", L"错误", MB_OK | MB_ICONERROR);
+                ShowMessage(hwnd, L"用户名和邮箱不能为空", L"错误");
                 return 0;
             }
 
@@ -399,7 +503,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         break;
                     }
                 }
-                MessageBoxW(hwnd, L"账户更新成功", L"成功", MB_OK);
+                ShowMessage(hwnd, L"账户更新成功", L"成功");
             } else {
                 // 新增
                 if (config.account_count < MAX_ACCOUNTS) {
@@ -409,7 +513,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     strcpy(acc->email, emailBuf);
                     strcpy(acc->ssh_key_path, sshBuf);
                     config.account_count++;
-                    MessageBoxW(hwnd, L"账户添加成功", L"成功", MB_OK);
+                    ShowMessage(hwnd, L"账户添加成功", L"成功");
                 }
             }
             SaveConfig(&config);
@@ -418,7 +522,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         else if (id == ID_BTN_DELETE) {
             if (strlen(currentEditID) > 0) {
-                if (MessageBoxW(hwnd, L"确定要删除此账户吗？", L"确认", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                if (MessageBoxW(hwnd, L"确定要删除此账户吗？", L"确认", MB_YESNO | MB_ICONWARNING) == IDYES) {
                     int found = -1;
                     for (int i = 0; i < config.account_count; i++) {
                         if (strcmp(config.accounts[i].id, currentEditID) == 0) {
@@ -450,13 +554,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     RefreshList();
                     UpdateStatus();
                     wchar_t msg[512];
-                    swprintf(msg, 512, L"已切换到 %S", acc->name);
-                    MessageBoxW(hwnd, msg, L"成功", MB_OK);
+                    swprintf(msg, 512, L"已切换到 %s", U8ToW(acc->name));
+                    ShowMessage(hwnd, msg, L"成功");
                 } else {
-                    MessageBoxW(hwnd, L"切换失败，请检查Git环境", L"错误", MB_OK | MB_ICONERROR);
+                    ShowMessage(hwnd, L"切换失败，请检查Git环境", L"错误");
                 }
             } else {
-                MessageBoxW(hwnd, L"请先选择一个账户", L"提示", MB_OK | MB_ICONINFORMATION);
+                ShowMessage(hwnd, L"请先选择一个账户", L"提示");
             }
         }
         break;
