@@ -10,11 +10,11 @@ if %errorlevel% neq 0 (
         exit /b 1
     ) else (
         echo Compiling with MSVC...
-        cl main.c logic.c /Fe:GitManager.exe user32.lib kernel32.lib gdi32.lib comdlg32.lib shell32.lib /link /SUBSYSTEM:WINDOWS
+        cl main.c logic.c /Fe:GitManager.exe /O1 /MD /link /SUBSYSTEM:WINDOWS user32.lib kernel32.lib gdi32.lib comdlg32.lib shell32.lib /OPT:REF /OPT:ICF
     )
 ) else (
     echo Compiling with GCC...
-    gcc main.c logic.c -o GitManager.exe -mwindows -luser32 -lkernel32 -lgdi32 -lcomdlg32 -lshell32
+    gcc main.c logic.c -o GitManager.exe -mwindows -Os -s -ffunction-sections -fdata-sections -Wl,--gc-sections -luser32 -lkernel32 -lgdi32 -lcomdlg32 -lshell32
 )
 
 if exist GitManager.exe (

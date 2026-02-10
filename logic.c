@@ -281,3 +281,29 @@ int SetGlobalConfig(const char* name, const char* email, const char* sshKeyPath)
     
     return 1;
 }
+
+int GetSSHKeys(char keys[][PATH_LEN], int maxKeys) {
+    char path[MAX_PATH];
+    if (FAILED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, path))) return 0;
+    
+    char searchPath[MAX_PATH];
+    snprintf(searchPath, MAX_PATH, "%s\\.ssh\\id_*", path);
+    
+    WIN32_FIND_DATAA fd;
+    HANDLE hFind = FindFirstFileA(searchPath, &fd);
+    if (hFind == INVALID_HANDLE_VALUE) return 0;
+    
+    int count = 0;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            // 排除 .pub 文件
+            if (strstr(fd.cFileName, ".pub")) continue;
+            
+            snprintf(keys[count], PATH_LEN, "%s\\.ssh\\%s", path, fd.cFileName);
+            count++;
+        }
+    } while (FindNextFileA(hFind, &fd) && count < maxKeys);
+    
+    FindClose(hFind);
+    return count;
+}

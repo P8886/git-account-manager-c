@@ -32,5 +32,6 @@ void SaveConfig(Config* config);
 // Git 操作
 void GetGlobalConfig(char* name, char* email);
 int SetGlobalConfig(const char* name, const char* email, const char* sshKeyPath);
+int GetSSHKeys(char keys[][PATH_LEN], int maxKeys);
 
 #endif
