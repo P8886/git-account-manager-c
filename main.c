@@ -341,24 +341,26 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         y += rowHeight + 15;
         // SSH Key
         CreateWindowW(L"STATIC", L"SSH密钥:", WS_CHILD | WS_VISIBLE, rightX, y + 3, labelWidth, 20, hwnd, NULL, NULL, NULL);
-        // 使用 ComboBox 替代 Edit
-        // 减去 Generate 按钮的宽度
+        
+        // 生成按钮 (放在 Label 同一行右侧)
         int genBtnW = 70;
-        int browseBtnW = 35;
-        int comboW = inputWidth - browseBtnW - genBtnW - 10;
+        hBtnGenerate = CreateWindowW(L"BUTTON", L"生成", WS_CHILD | WS_VISIBLE, 
+            rightX + rightWidth - genBtnW, y, genBtnW, 28, hwnd, (HMENU)ID_BTN_GENERATE, NULL, NULL);
+
+        y += 35; // 下移一行
+
+        // ComboBox 和 浏览按钮 (占据整行宽度)
+        int browseBtnW = 40;
+        int comboW = rightWidth - browseBtnW - 5;
 
         hSSH = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL, 
-            inputX, y + 2, comboW, 200, hwnd, (HMENU)ID_COMBO_SSH, NULL, NULL);
-        
-        // 生成按钮
-        hBtnGenerate = CreateWindowW(L"BUTTON", L"生成", WS_CHILD | WS_VISIBLE, 
-            inputX + comboW + 5, y, genBtnW, 28, hwnd, (HMENU)ID_BTN_GENERATE, NULL, NULL);
+            rightX, y, comboW, 200, hwnd, (HMENU)ID_COMBO_SSH, NULL, NULL);
 
         // 浏览按钮
         CreateWindowW(L"BUTTON", L"...", WS_CHILD | WS_VISIBLE, 
-            inputX + comboW + genBtnW + 10, y, browseBtnW, 28, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
+            rightX + comboW + 5, y, browseBtnW, 28, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
 
-        y += rowHeight + 40;
+        y += rowHeight + 10;
         // 按钮组 (保存/取消/删除)
         int btnWidth = 100;
         hBtnSave = CreateWindowW(L"BUTTON", L"添加账户", WS_CHILD | WS_VISIBLE, rightX, y, btnWidth, 32, hwnd, (HMENU)ID_BTN_SAVE, NULL, NULL);
@@ -388,6 +390,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         // 设置全局字体 - 使用正确的回调函数
         EnumChildWindows(hwnd, SetChildFont, (LPARAM)hGlobalFont);
+
+        ApplyTheme(hwnd); // 初始化主题样式 (包括按钮圆角)
 
         LoadConfig(&config);
         RefreshList();
