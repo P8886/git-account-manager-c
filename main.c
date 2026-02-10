@@ -5,7 +5,12 @@
 #include <commdlg.h>
 #include <stdio.h>
 #include <time.h>
+#include <dwmapi.h> // 引入 DWM API
 #include "logic.h"
+
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
 
 // 控件 ID 定义
 #define ID_LIST 101
@@ -93,19 +98,30 @@ void UpdateStatus() {
     SetWindowTextW(hStatus, U8ToW(buffer));
 }
 
+// 设置 DWM 沉浸式暗黑模式标题栏
+void SetTitleBarTheme(HWND hwnd, BOOL dark) {
+    BOOL value = dark;
+    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
+}
+
 // 应用主题颜色
 void ApplyTheme(HWND hwnd) {
     InvalidateRect(hwnd, NULL, TRUE);
     EnumChildWindows(hwnd, (WNDENUMPROC)(void*)InvalidateRect, (LPARAM)TRUE);
+    
+    // 设置标题栏主题
+    SetTitleBarTheme(hwnd, isDarkMode);
 }
+
+// 自绘按钮辅助函数 (如果将来需要更圆润的按钮，可扩展此函数)
+// 目前主要依靠 Manifest 来实现圆角风格
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
-        HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
-        HFONT hBoldFont = CreateFontW(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
-
-        hBrushDark = CreateSolidBrush(RGB(30, 30, 30));
+        HFONT hFont = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+        
+        hBrushDark = CreateSolidBrush(RGB(32, 32, 32));
         hBrushControlDark = CreateSolidBrush(RGB(50, 50, 50));
         hBrushLight = GetSysColorBrush(COLOR_WINDOW);
 
@@ -113,69 +129,69 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         int margin = 15;
         int listWidth = 200;
         int rightX = margin + listWidth + margin;
-        int rightWidth = 300;
-        int rowHeight = 30;
-        int labelWidth = 60;
+        int rightWidth = 320; // 增加右侧宽度
+        int rowHeight = 35;   // 增加行高
+        int labelWidth = 70;  // 增加标签宽度
         int inputX = rightX + labelWidth + 10;
         int inputWidth = rightWidth - labelWidth - 10;
         int y = margin;
 
         // 左侧列表
         hList = CreateWindowW(L"LISTBOX", NULL, WS_CHILD | WS_VISIBLE | WS_BORDER | LBS_NOTIFY | WS_VSCROLL,
-            margin, y, listWidth, 340, hwnd, (HMENU)ID_LIST, NULL, NULL);
+            margin, y, listWidth, 360, hwnd, (HMENU)ID_LIST, NULL, NULL);
         SendMessageW(hList, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         // 右侧 GroupBox (使用 Button 类实现)
         CreateWindowW(L"BUTTON", L"账户详情", WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-            rightX, y - 5, rightWidth, 240, hwnd, (HMENU)ID_GROUP_DETAILS, NULL, NULL);
+            rightX, y - 5, rightWidth, 260, hwnd, (HMENU)ID_GROUP_DETAILS, NULL, NULL);
         
-        y += 25; // GroupBox 内部起始 Y
+        y += 30; // GroupBox 内部起始 Y
 
         // 用户名
-        CreateWindowW(L"STATIC", L"用户名:", WS_CHILD | WS_VISIBLE, rightX + 10, y + 3, labelWidth, 20, hwnd, NULL, NULL, NULL);
+        CreateWindowW(L"STATIC", L"用户名:", WS_CHILD | WS_VISIBLE, rightX + 15, y + 3, labelWidth, 20, hwnd, NULL, NULL, NULL);
         hName = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 
-            inputX, y, inputWidth - 10, 23, hwnd, (HMENU)ID_EDIT_NAME, NULL, NULL);
+            inputX, y, inputWidth - 20, 26, hwnd, (HMENU)ID_EDIT_NAME, NULL, NULL);
         SendMessageW(hName, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         y += rowHeight + 5;
         // 邮箱
-        CreateWindowW(L"STATIC", L"邮箱:", WS_CHILD | WS_VISIBLE, rightX + 10, y + 3, labelWidth, 20, hwnd, NULL, NULL, NULL);
+        CreateWindowW(L"STATIC", L"邮箱:", WS_CHILD | WS_VISIBLE, rightX + 15, y + 3, labelWidth, 20, hwnd, NULL, NULL, NULL);
         hEmail = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 
-            inputX, y, inputWidth - 10, 23, hwnd, (HMENU)ID_EDIT_EMAIL, NULL, NULL);
+            inputX, y, inputWidth - 20, 26, hwnd, (HMENU)ID_EDIT_EMAIL, NULL, NULL);
         SendMessageW(hEmail, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         y += rowHeight + 5;
         // SSH Key
-        CreateWindowW(L"STATIC", L"SSH Key:", WS_CHILD | WS_VISIBLE, rightX + 10, y + 3, labelWidth, 20, hwnd, NULL, NULL, NULL);
+        CreateWindowW(L"STATIC", L"SSH Key:", WS_CHILD | WS_VISIBLE, rightX + 15, y + 3, labelWidth, 20, hwnd, NULL, NULL, NULL);
         // 使用 ComboBox 替代 Edit
         hSSH = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL, 
-            inputX, y, inputWidth - 45, 200, hwnd, (HMENU)ID_COMBO_SSH, NULL, NULL);
+            inputX, y, inputWidth - 55, 200, hwnd, (HMENU)ID_COMBO_SSH, NULL, NULL);
         SendMessageW(hSSH, WM_SETFONT, (WPARAM)hFont, TRUE);
         
-        CreateWindowW(L"BUTTON", L"...", WS_CHILD | WS_VISIBLE, inputX + inputWidth - 40, y, 30, 23, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
+        CreateWindowW(L"BUTTON", L"...", WS_CHILD | WS_VISIBLE, inputX + inputWidth - 50, y, 30, 26, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
 
-        y += rowHeight + 15;
+        y += rowHeight + 20;
         // 按钮组
-        int btnWidth = 80;
-        hBtnSave = CreateWindowW(L"BUTTON", L"添加账户", WS_CHILD | WS_VISIBLE, rightX + 10, y, btnWidth, 28, hwnd, (HMENU)ID_BTN_SAVE, NULL, NULL);
+        int btnWidth = 90;
+        hBtnSave = CreateWindowW(L"BUTTON", L"添加账户", WS_CHILD | WS_VISIBLE, rightX + 15, y, btnWidth, 32, hwnd, (HMENU)ID_BTN_SAVE, NULL, NULL);
         SendMessageW(hBtnSave, WM_SETFONT, (WPARAM)hFont, TRUE);
         
-        hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE, rightX + 10 + btnWidth + 10, y, 60, 28, hwnd, (HMENU)ID_BTN_CANCEL, NULL, NULL);
+        hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE, rightX + 15 + btnWidth + 10, y, 70, 32, hwnd, (HMENU)ID_BTN_CANCEL, NULL, NULL);
         SendMessageW(hBtnCancel, WM_SETFONT, (WPARAM)hFont, TRUE);
         ShowWindow(hBtnCancel, SW_HIDE);
         
-        CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE, rightX + rightWidth - 60 - 10, y, 60, 28, hwnd, (HMENU)ID_BTN_DELETE, NULL, NULL);
+        CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE, rightX + rightWidth - 70 - 20, y, 70, 32, hwnd, (HMENU)ID_BTN_DELETE, NULL, NULL);
 
-        y += 60; // 跳出 GroupBox
+        y += 70; // 跳出 GroupBox
         
         // 全局操作区
-        CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE, rightX, y, rightWidth, 32, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
-        y += 40;
-        CreateWindowW(L"BUTTON", L"切换夜间模式", WS_CHILD | WS_VISIBLE, rightX, y, rightWidth, 32, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
+        CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE, rightX, y, rightWidth, 38, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
+        y += 45;
+        CreateWindowW(L"BUTTON", L"切换夜间模式", WS_CHILD | WS_VISIBLE, rightX, y, rightWidth, 38, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
 
         // 状态栏
         hStatus = CreateWindowW(L"STATIC", L"Ready", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_SUNKEN, 
-            0, 365, 560, 25, hwnd, (HMENU)ID_STATUS, NULL, NULL);
+            0, 395, 590, 25, hwnd, (HMENU)ID_STATUS, NULL, NULL);
         SendMessageW(hStatus, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         // 设置全局字体
@@ -200,12 +216,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
     case WM_CTLCOLORSTATIC: {
         HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT); // 透明背景，适配 GroupBox
         if (isDarkMode) {
             SetTextColor(hdc, RGB(220, 220, 220));
-            SetBkColor(hdc, RGB(30, 30, 30));
+            SetBkColor(hdc, RGB(32, 32, 32));
             return (LRESULT)hBrushDark;
         }
-        return DefWindowProcW(hwnd, msg, wParam, lParam);
+        return (LRESULT)GetStockObject(NULL_BRUSH); // 浅色模式下也使用透明背景
     }
     case WM_CTLCOLORBTN: {
         // 按钮颜色通常由系统绘制，Win32 标准按钮较难定制颜色，除非自绘。
@@ -373,10 +390,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     RegisterClassW(&wc);
 
-    // 调整窗口大小
+    // 调整窗口大小 (增加宽度和高度以适应更宽松的布局)
     HWND hwnd = CreateWindowW(L"GitAccountManagerC", L"Git Account Manager (C Version)",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 560, 430,
+        CW_USEDEFAULT, CW_USEDEFAULT, 590, 460,
         NULL, NULL, hInstance, NULL);
 
     ShowWindow(hwnd, nCmdShow);
