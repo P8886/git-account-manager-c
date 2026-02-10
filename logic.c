@@ -307,3 +307,31 @@ int GetSSHKeys(char keys[][PATH_LEN], int maxKeys) {
     FindClose(hFind);
     return count;
 }
+
+int GenerateSSHKey(const char* name, const char* email, const char* type, char* outPath) {
+    char userProfile[MAX_PATH];
+    if (FAILED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, userProfile))) return 0;
+    
+    char sshDir[MAX_PATH];
+    snprintf(sshDir, MAX_PATH, "%s\\.ssh", userProfile);
+    CreateDirectoryA(sshDir, NULL); // Ensure directory exists
+    
+    char keyPath[MAX_PATH];
+    snprintf(keyPath, MAX_PATH, "%s\\%s", sshDir, name);
+    
+    // Check if exists
+    if (GetFileAttributesA(keyPath) != INVALID_FILE_ATTRIBUTES) {
+        return 0; // Already exists
+    }
+    
+    // ssh-keygen -t <type> -C <email> -f <path> -N ""
+    char cmd[2048];
+    // Note: ssh-keygen might need quotes around paths
+    snprintf(cmd, sizeof(cmd), "ssh-keygen -t %s -C \"%s\" -f \"%s\" -N \"\"", type, email, keyPath);
+    
+    if (RunCmd(cmd, NULL, 0)) {
+        if (outPath) strcpy(outPath, keyPath);
+        return 1;
+    }
+    return 0;
+}

@@ -15,7 +15,7 @@ if %errorlevel% equ 0 (
     )
 
     :: Compile main program
-    gcc main.c logic.c resource.o -o GitManager.exe -mwindows -Os -s -ffunction-sections -fdata-sections -Wl,--gc-sections -luser32 -lkernel32 -lgdi32 -lcomdlg32 -lshell32 -ldwmapi
+    gcc main.c logic.c ui_draw.c ui_gen_key.c resource.o -o GitManager.exe -mwindows -Os -s -ffunction-sections -fdata-sections -Wl,--gc-sections -luser32 -lkernel32 -lgdi32 -lcomdlg32 -lshell32 -ldwmapi
     
     :: Clean up resource object file
     if exist resource.o del resource.o
@@ -37,12 +37,14 @@ if %errorlevel% equ 0 (
     )
 
     :: Compile main program
-    cl main.c logic.c resource.res /Fe:GitManager.exe /O1 /MD /link /SUBSYSTEM:WINDOWS user32.lib kernel32.lib gdi32.lib comdlg32.lib shell32.lib dwmapi.lib /OPT:REF /OPT:ICF
+    cl main.c logic.c ui_draw.c ui_gen_key.c resource.res /Fe:GitManager.exe /O1 /MD /link /SUBSYSTEM:WINDOWS user32.lib kernel32.lib gdi32.lib comdlg32.lib shell32.lib dwmapi.lib /OPT:REF /OPT:ICF
     
     :: Clean up resource res file
     if exist resource.res del resource.res
     if exist main.obj del main.obj
     if exist logic.obj del logic.obj
+    if exist ui_draw.obj del ui_draw.obj
+    if exist ui_gen_key.obj del ui_gen_key.obj
     
     goto :success
 )
