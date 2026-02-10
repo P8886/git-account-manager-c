@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <dwmapi.h> // 引入 DWM API
-#include <shlobj.h> // For SHGetFolderPath
+#include <shlobj.h> // 用于 SHGetFolderPath
 #include "shared.h"
 #include "logic.h"
 #include "ui_draw.h"
@@ -57,7 +57,7 @@ void MySetWindowTheme(HWND hwnd, LPCWSTR pszSubAppName, LPCWSTR pszSubIdList) {
 // --- UTF-8 与 WideChar 转换辅助函数 ---
 
 wchar_t* U8ToW(const char* utf8) {
-    static wchar_t buffer[1024]; // 减小 buffer 节省栈/BSS
+    static wchar_t buffer[1024]; // 减小 buffer 以节省栈/BSS
     if (!utf8) return L"";
     MultiByteToWideChar(CP_UTF8, 0, utf8, -1, buffer, 1024);
     return buffer;
@@ -117,6 +117,7 @@ void UpdateStatus() {
     char buffer[512];
     snprintf(buffer, sizeof(buffer), "   当前全局身份: %s <%s>", name, email);
     SetWindowTextW(hStatus, U8ToW(buffer));
+    InvalidateRect(hStatus, NULL, TRUE); // 强制重绘以修复文字重叠问题
 }
 
 // 设置 DWM 沉浸式暗黑模式标题栏
@@ -133,7 +134,7 @@ void SetTitleBarTheme(HWND hwnd, BOOL dark) {
 LRESULT CALLBACK MsgBoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
-        HFONT hFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+        HFONT hFont = CreateFontW(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
         
         // 获取参数
         CREATESTRUCT* pCreate = (CREATESTRUCT*)lParam;
@@ -223,7 +224,7 @@ int ShowMessage(HWND owner, LPCWSTR text, LPCWSTR title, UINT type) {
     SetProp(hMsgBox, L"ResultPtr", &result);
 
     // 创建按钮
-    HFONT hFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+    HFONT hFont = CreateFontW(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
     
     if (type == MB_YESNO) {
         HWND hBtnYes = CreateWindowW(L"BUTTON", L"是(Y)", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW, 
@@ -260,7 +261,7 @@ int ShowMessage(HWND owner, LPCWSTR text, LPCWSTR title, UINT type) {
     return result;
 }
 
-// Callback to set font for all children
+// 设置子控件字体回调
 BOOL CALLBACK SetChildFont(HWND hwndChild, LPARAM lParam) {
     SendMessage(hwndChild, WM_SETFONT, (WPARAM)lParam, TRUE);
     return TRUE;
@@ -280,7 +281,9 @@ void ApplyTheme(HWND hwnd) {
         SetWindowTextW(hBtnTheme, isDarkMode ? L"☀" : L"🌙");
     }
 
-    // 设置列表框和下拉框主题 (Explorer 风格在夜间模式下表现较好)
+    // 动态加载 SetWindowTheme
+    // 为了减小体积，这里不使用静态链接 uxtheme.lib，而是保持动态加载，或者如果想更小，可以考虑静态链接并剥离未使用的符号
+    // 但动态加载更安全。这里我们保持现状，优化 flags 已经在 build.bat 中处理。
     LPCWSTR theme = isDarkMode ? L"DarkMode_Explorer" : NULL;
     MySetWindowTheme(hList, theme, NULL);
     MySetWindowTheme(hSSH, theme, NULL);
@@ -302,8 +305,8 @@ void ApplyTheme(HWND hwnd) {
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
-        // 使用 20px 字体 (从 16px 调整回 20px，改善显示效果)
-        hGlobalFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+        // 使用 18px 字体
+        hGlobalFont = CreateFontW(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
         
         hBrushDark = CreateSolidBrush(RGB(32, 32, 32));
         hBrushControlDark = CreateSolidBrush(RGB(50, 50, 50));
@@ -337,7 +340,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         y += rowHeight + 15;
         // SSH Key
-        CreateWindowW(L"STATIC", L"SSH Key:", WS_CHILD | WS_VISIBLE, rightX, y + 3, labelWidth, 20, hwnd, NULL, NULL, NULL);
+        CreateWindowW(L"STATIC", L"SSH密钥:", WS_CHILD | WS_VISIBLE, rightX, y + 3, labelWidth, 20, hwnd, NULL, NULL, NULL);
         // 使用 ComboBox 替代 Edit
         // 减去 Generate 按钮的宽度
         int genBtnW = 70;

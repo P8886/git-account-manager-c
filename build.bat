@@ -1,12 +1,12 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: Check for GCC
+:: 检查 GCC
 gcc --version >nul 2>&1
 if %errorlevel% equ 0 (
     echo Compiling with GCC...
     
-    :: Compile resource file
+    :: 编译资源文件
     windres resource.rc -o resource.o
     if %errorlevel% neq 0 (
         echo Failed to compile resources.
@@ -14,21 +14,21 @@ if %errorlevel% equ 0 (
         exit /b 1
     )
 
-    :: Compile main program
-    gcc main.c logic.c ui_draw.c ui_gen_key.c resource.o -o GitManager.exe -mwindows -Os -s -ffunction-sections -fdata-sections -Wl,--gc-sections -luser32 -lkernel32 -lgdi32 -lcomdlg32 -lshell32 -ldwmapi
+    :: 编译主程序
+    gcc main.c logic.c ui_draw.c ui_gen_key.c resource.o -o GitManager.exe -mwindows -Os -s -ffunction-sections -fdata-sections -fno-ident -fno-asynchronous-unwind-tables -Wl,--gc-sections -luser32 -lkernel32 -lgdi32 -lcomdlg32 -lshell32 -ldwmapi
     
-    :: Clean up resource object file
+    :: 清理资源对象文件
     if exist resource.o del resource.o
     
     goto :success
 )
 
-:: Check for MSVC
+:: 检查 MSVC
 cl >nul 2>&1
 if %errorlevel% equ 0 (
     echo Compiling with MSVC...
     
-    :: Compile resource file
+    :: 编译资源文件
     rc /fo resource.res resource.rc
     if %errorlevel% neq 0 (
         echo Failed to compile resources.
@@ -36,10 +36,10 @@ if %errorlevel% equ 0 (
         exit /b 1
     )
 
-    :: Compile main program
+    :: 编译主程序
     cl main.c logic.c ui_draw.c ui_gen_key.c resource.res /Fe:GitManager.exe /O1 /MD /link /SUBSYSTEM:WINDOWS user32.lib kernel32.lib gdi32.lib comdlg32.lib shell32.lib dwmapi.lib /OPT:REF /OPT:ICF
     
-    :: Clean up resource res file
+    :: 清理资源 res 文件
     if exist resource.res del resource.res
     if exist main.obj del main.obj
     if exist logic.obj del logic.obj

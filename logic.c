@@ -314,19 +314,19 @@ int GenerateSSHKey(const char* name, const char* email, const char* type, char* 
     
     char sshDir[MAX_PATH];
     snprintf(sshDir, MAX_PATH, "%s\\.ssh", userProfile);
-    CreateDirectoryA(sshDir, NULL); // Ensure directory exists
+    CreateDirectoryA(sshDir, NULL); // 确保目录存在
     
     char keyPath[MAX_PATH];
     snprintf(keyPath, MAX_PATH, "%s\\%s", sshDir, name);
     
-    // Check if exists
+    // 检查是否存在
     if (GetFileAttributesA(keyPath) != INVALID_FILE_ATTRIBUTES) {
         return 0; // Already exists
     }
     
     // ssh-keygen -t <type> -C <email> -f <path> -N ""
     char cmd[2048];
-    // Note: ssh-keygen might need quotes around paths
+    // 注意：ssh-keygen 可能需要路径周围有引号
     snprintf(cmd, sizeof(cmd), "ssh-keygen -t %s -C \"%s\" -f \"%s\" -N \"\"", type, email, keyPath);
     
     if (RunCmd(cmd, NULL, 0)) {
