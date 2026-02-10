@@ -1,9 +1,49 @@
 # Git Account Manager (C Version)
 
-A lightweight Git account manager written in C/Win32 API.
-Features:
-- Ultra small size (~100KB)
-- Account switching
-- SSH key management
-- Chinese comments
-- Night mode
+这是一个使用 C 语言 (Win32 API) 重写的轻量级 Git 账户管理工具。
+旨在解决原 Go 版本打包体积过大 (20MB+) 的问题，同时保持完全的功能兼容性。
+
+## ✨ 核心特性
+
+*   **极致轻量**: 编译后单文件仅约 **180KB** (原 Go 版本约 24MB)，几乎不占空间。
+*   **原生性能**: 基于 Win32 API 开发，启动瞬间完成，资源占用极低。
+*   **完美兼容**: 直接读取和兼容 Go 版本的配置文件 (`%APPDATA%\git-account-manager-go\accounts.json`)，无缝迁移。
+*   **界面美化**: 
+    *   原生 Windows 控件风格，布局整洁。
+    *   **夜间模式**: 支持一键切换深色主题，保护视力。
+    *   **字体优化**: 全面适配 `Microsoft YaHei UI`，解决中文显示问题。
+*   **SSH 管理**:
+    *   **自动扫描**: 启动时自动扫描 `~/.ssh/` 目录下的私钥。
+    *   **快速选择**: 通过下拉菜单快速绑定 SSH Key，无需手动输入路径。
+*   **中文支持**: 全中文界面及源代码注释，便于二次开发。
+
+## 🚀 最近更新 (Changelog)
+
+### v1.1.0 - UI 重构与体验优化
+*   **界面重构**: 引入 GroupBox 分组布局，优化控件间距，视觉更清爽。
+*   **交互升级**: SSH Key 输入框升级为下拉组合框 (ComboBox)，支持自动扫描和手动输入。
+*   **体积优化**: 优化编译参数 (`-Os -s`) 和代码结构，体积进一步压缩至 ~180KB。
+*   **细节修复**: 修复了部分字体渲染问题，优化了夜间模式的配色细节。
+
+### v1.0.0 - 初始发布 (Initial Release)
+*   **C 语言重写**: 完整复刻 Go 版本核心逻辑。
+*   **功能实现**:
+    *   多账户增删改查。
+    *   一键切换全局 Git 用户名、邮箱和 SSH Key。
+    *   解决 `system()` 调用导致的黑框问题 (使用 `CreateProcess`)。
+    *   轻量级 JSON 解析器 (无第三方依赖)。
+
+## 🛠️ 构建指南
+
+项目自带自动编译脚本，支持 GCC (MinGW/TDM-GCC) 和 MSVC 编译器。
+
+1.  双击运行目录下的 `build.bat`。
+2.  脚本会自动检测编译器并生成 `GitManager.exe`。
+3.  直接运行生成的 exe 即可。
+
+## 📂 目录结构
+
+*   `main.c`: UI 界面逻辑、消息循环、控件事件处理。
+*   `logic.c`: 核心业务逻辑（配置读写、Git 命令执行、JSON 解析）。
+*   `logic.h`: 数据结构定义与函数声明。
+*   `build.bat`: 自动构建脚本。
