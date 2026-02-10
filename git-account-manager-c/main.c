@@ -50,6 +50,7 @@ void MySetWindowTheme(HWND hwnd, LPCWSTR appName, LPCWSTR idList) {
 
 // 前向声明
 void DrawButton(LPDRAWITEMSTRUCT pDIS);
+void SetTitleBarTheme(HWND hwnd, BOOL dark);
 
 // --- UTF-8 与 WideChar 转换辅助函数 ---
 
@@ -115,9 +116,6 @@ void UpdateStatus() {
     snprintf(buffer, sizeof(buffer), "当前全局身份: %s <%s>", name, email);
     SetWindowTextW(hStatus, U8ToW(buffer));
 }
-
-// 设置 DWM 沉浸式暗黑模式标题栏
-void SetTitleBarTheme(HWND hwnd, BOOL dark); // Forward declaration
 
 // --- 自定义消息框 (居中且支持暗黑模式) ---
 #define ID_BTN_MSG_OK 201
@@ -277,24 +275,31 @@ void ApplyTheme(HWND hwnd) {
     // 设置标题栏主题
     SetTitleBarTheme(hwnd, isDarkMode);
 
+    // 更新夜间模式按钮图标
+    HWND hBtnTheme = GetDlgItem(hwnd, ID_BTN_THEME);
+    if (hBtnTheme) {
+        SetWindowTextW(hBtnTheme, isDarkMode ? L"☀" : L"🌙");
+    }
+
     // 设置列表框和下拉框主题 (Explorer 风格在夜间模式下表现较好)
     LPCWSTR theme = isDarkMode ? L"DarkMode_Explorer" : NULL;
     MySetWindowTheme(hList, theme, NULL);
     MySetWindowTheme(hSSH, theme, NULL);
     
     // 切换按钮样式 (OwnerDraw)
-    int btnIds[] = {ID_BTN_BROWSE, ID_BTN_SAVE, ID_BTN_DELETE, ID_BTN_SWITCH, ID_BTN_THEME, ID_BTN_CANCEL};
+    int btnIds[] = {ID_BTN_BROWSE, ID_BTN_SAVE, ID_BTN_DELETE, ID_BTN_SWITCH, ID_BTN_CANCEL, ID_BTN_THEME};
     for (int i = 0; i < 6; i++) {
         HWND hBtn = GetDlgItem(hwnd, btnIds[i]);
         if (hBtn) {
+            // 所有按钮在暗黑模式下都使用 OwnerDraw，主题按钮在所有模式下都使用 OwnerDraw (因为它在创建时指定了)
+            // 这里我们只更新那些需要动态切换样式的按钮
             LONG_PTR style = GetWindowLongPtr(hBtn, GWL_STYLE);
-            if (isDarkMode) {
-                style |= BS_OWNERDRAW;
+            if (isDarkMode || btnIds[i] == ID_BTN_THEME) {
+                 style |= BS_OWNERDRAW;
             } else {
-                style &= ~BS_OWNERDRAW;
+                 style &= ~BS_OWNERDRAW;
             }
             SetWindowLongPtr(hBtn, GWL_STYLE, style);
-            // 强制重绘以应用样式更改
             SetWindowPos(hBtn, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
             InvalidateRect(hBtn, NULL, TRUE);
         }
@@ -376,8 +381,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         
         // 全局操作区
         CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE, rightX, y, rightWidth, 38, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
-        y += 45;
-        CreateWindowW(L"BUTTON", L"切换夜间模式", WS_CHILD | WS_VISIBLE, rightX, y, rightWidth, 38, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
+        
+        // 顶部夜间模式切换按钮 (小图标)
+        HWND hBtnTheme = CreateWindowW(L"BUTTON", L"🌙", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
+            540, 10, 30, 30, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
+        SendMessageW(hBtnTheme, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         // 状态栏
         hStatus = CreateWindowW(L"STATIC", L"Ready", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_SUNKEN, 
@@ -522,6 +530,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         else if (id == ID_BTN_DELETE) {
             if (strlen(currentEditID) > 0) {
+                // 使用 ShowMessage 的确认框逻辑比较复杂，因为 ShowMessage 是模态且只用于显示
+                // 这里暂时保持 MessageBoxW 用于确认，或者我们可以扩展 ShowMessage 支持返回值
+                // 为了简单，我们使用 MessageBoxW，但注意它可能不是居中的。
+                // 如果用户非常介意，我们可以实现 ConfirmDialog。
+                // 鉴于用户只抱怨了成功提示，我们暂时保留 MessageBoxW 用于删除确认，
+                // 或者我们可以快速实现一个 ConfirmDialog。
+                // 考虑到时间，我们先用 MessageBoxW，如果不满意再改。
                 if (MessageBoxW(hwnd, L"确定要删除此账户吗？", L"确认", MB_YESNO | MB_ICONWARNING) == IDYES) {
                     int found = -1;
                     for (int i = 0; i < config.account_count; i++) {
