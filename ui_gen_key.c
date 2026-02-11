@@ -35,7 +35,7 @@ LRESULT CALLBACK GenKeyDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         CREATESTRUCT* pCreate = (CREATESTRUCT*)lParam;
         pData = (GenKeyDialogData*)pCreate->lpCreateParams;
         
-        int x = 20, y = 20, w = 340, h = 25;
+        int x = 20, y = 20, w = 340, h = 26; // 统一高度为 26
         int lblW = 80;
         int inputX = x + lblW + 10;
         int inputW = w - lblW - 10;
@@ -47,14 +47,14 @@ LRESULT CALLBACK GenKeyDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         char defaultName[64];
         snprintf(defaultName, sizeof(defaultName), "id_ed25519_%lld", (long long)time(NULL));
         
-        HWND hName = CreateWindowW(L"EDIT", U8ToW(defaultName), WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 
+        HWND hName = CreateWindowW(L"EDIT", U8ToW(defaultName), WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 
             inputX, y, inputW, h, hwnd, (HMENU)ID_GEN_EDIT_NAME, NULL, NULL);
 
         y += h + 15;
 
         // 2. 关联邮箱
         CreateWindowW(L"STATIC", L"关联邮箱:", WS_CHILD | WS_VISIBLE, x, y+3, lblW, h, hwnd, (HMENU)ID_GEN_LBL_EMAIL, NULL, NULL);
-        CreateWindowW(L"EDIT", U8ToW(pData->defaultEmail), WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 
+        CreateWindowW(L"EDIT", U8ToW(pData->defaultEmail), WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 
             inputX, y, inputW, h, hwnd, (HMENU)ID_GEN_EDIT_EMAIL, NULL, NULL);
 
         y += h + 15;
@@ -63,11 +63,12 @@ LRESULT CALLBACK GenKeyDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         CreateWindowW(L"STATIC", L"加密类型:", WS_CHILD | WS_VISIBLE, x, y+3, lblW, h, hwnd, (HMENU)ID_GEN_LBL_TYPE, NULL, NULL);
         HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWNLIST, 
             inputX, y, inputW, 100, hwnd, (HMENU)ID_GEN_COMBO_TYPE, NULL, NULL);
+        SendMessage(hCombo, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)22);
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"ed25519");
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"rsa");
         SendMessageW(hCombo, CB_SETCURSEL, 0, 0); // 默认选中 ed25519
 
-        y += h + 30;
+        y += h + 20;
 
         // 按钮
         int btnW = 100;
@@ -76,16 +77,14 @@ LRESULT CALLBACK GenKeyDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         int btnStart = (x + w + 20 - totalBtnW) / 2; // 居中按钮
 
         HWND hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
-            btnStart, y, btnW, 32, hwnd, (HMENU)ID_GEN_BTN_CANCEL, NULL, NULL);
+            btnStart, y, btnW, h, hwnd, (HMENU)ID_GEN_BTN_CANCEL, NULL, NULL);
 
         HWND hBtnOk = CreateWindowW(L"BUTTON", L"生成", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_DEFPUSHBUTTON, 
-            btnStart + btnW + btnGap, y, btnW, 32, hwnd, (HMENU)ID_GEN_BTN_OK, NULL, NULL);
+            btnStart + btnW + btnGap, y, btnW, h, hwnd, (HMENU)ID_GEN_BTN_OK, NULL, NULL);
 
         // 应用主题和字体
         EnumChildWindows(hwnd, SetChildFont, (LPARAM)hGlobalFont);
         SetTitleBarTheme(hwnd, isDarkMode);
-
-        // 此次未子类化 Edit 控件进行圆角绘制，依靠 WM_PAINT 绘制边框
         break;
     }
 
@@ -140,42 +139,7 @@ LRESULT CALLBACK GenKeyDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
     
-    case WM_PAINT: {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        
-        // 为输入框绘制圆角边框
-        HWND hName = GetDlgItem(hwnd, ID_GEN_EDIT_NAME);
-        HWND hEmail = GetDlgItem(hwnd, ID_GEN_EDIT_EMAIL);
-        
-        if (hName && hEmail) {
-             RECT rcName, rcEmail;
-             GetWindowRect(hName, &rcName);
-             GetWindowRect(hEmail, &rcEmail);
-             
-             POINT ptNameTL = {rcName.left, rcName.top};
-             POINT ptNameBR = {rcName.right, rcName.bottom};
-             ScreenToClient(hwnd, &ptNameTL);
-             ScreenToClient(hwnd, &ptNameBR);
-             SetRect(&rcName, ptNameTL.x, ptNameTL.y, ptNameBR.x, ptNameBR.y);
 
-             POINT ptEmailTL = {rcEmail.left, rcEmail.top};
-             POINT ptEmailBR = {rcEmail.right, rcEmail.bottom};
-             ScreenToClient(hwnd, &ptEmailTL);
-             ScreenToClient(hwnd, &ptEmailBR);
-             SetRect(&rcEmail, ptEmailTL.x, ptEmailTL.y, ptEmailBR.x, ptEmailBR.y);
-
-             // 向外扩展以在 Edit 控件外部绘制边框
-             InflateRect(&rcName, 3, 3);
-             InflateRect(&rcEmail, 3, 3);
-             
-             DrawRoundedBorder(hdc, &rcName, isDarkMode, hBrushGenControlDark, GetSysColorBrush(COLOR_WINDOW));
-             DrawRoundedBorder(hdc, &rcEmail, isDarkMode, hBrushGenControlDark, GetSysColorBrush(COLOR_WINDOW));
-        }
-
-        EndPaint(hwnd, &ps);
-        return 0;
-    }
     
     case WM_ERASEBKGND: {
         if (isDarkMode) {
@@ -250,6 +214,37 @@ BOOL ShowGenerateKeyDialog(HWND owner, const char* defaultEmail, char* outPath) 
 
     if (data.success) {
         if (GenerateSSHKey(data.outName, data.outEmail, data.outType, outPath)) {
+            // 读取公钥内容并复制到剪贴板
+            char pubPath[MAX_PATH];
+            snprintf(pubPath, MAX_PATH, "%s.pub", outPath);
+            FILE* fp = fopen(pubPath, "r");
+            if (fp) {
+                char pubKey[4096] = {0};
+                fread(pubKey, 1, sizeof(pubKey) - 1, fp);
+                fclose(fp);
+                // 去除尾部空白符
+                int len = strlen(pubKey);
+                while (len > 0 && (pubKey[len-1] == '\n' || pubKey[len-1] == '\r' || pubKey[len-1] == ' ')) {
+                    pubKey[--len] = 0;
+                }
+                // 复制到剪贴板
+                if (len > 0 && OpenClipboard(owner)) {
+                    EmptyClipboard();
+                    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len + 1);
+                    if (hMem) {
+                        char* pMem = (char*)GlobalLock(hMem);
+                        memcpy(pMem, pubKey, len + 1);
+                        GlobalUnlock(hMem);
+                        SetClipboardData(CF_TEXT, hMem);
+                    }
+                    CloseClipboard();
+                    ShowMessage(owner, L"密钥生成成功！\n公钥内容已复制到剪贴板", L"成功", MB_OK);
+                } else {
+                    ShowMessage(owner, L"密钥生成成功！", L"成功", MB_OK);
+                }
+            } else {
+                ShowMessage(owner, L"密钥生成成功！\n（无法读取公钥文件）", L"成功", MB_OK);
+            }
             return TRUE;
         } else {
             ShowMessage(owner, L"密钥生成失败或已存在", L"错误", MB_OK);
