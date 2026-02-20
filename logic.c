@@ -272,35 +272,303 @@ int RunCmd(const char* cmd, char* output, int outSize) {
     return exitCode == 0;
 }
 
-void GetGlobalConfig(char* name, char* email) {
-    RunCmd("git config --global --get user.name", name, NAME_LEN);
-    RunCmd("git config --global --get user.email", email, EMAIL_LEN);
+// 获取 .gitconfig 文件路径
+static int GetGitConfigPath(char* buffer, int size) {
+    char userProfile[MAX_PATH];
+    if (FAILED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, userProfile))) return 0;
+    snprintf(buffer, size, "%s\\.gitconfig", userProfile);
+    return 1;
 }
 
+// 直接读取 .gitconfig 文件获取全局配置 (UTF-8 编码，避免命令行乱码)
+void GetGlobalConfig(char* name, char* email) {
+    name[0] = 0;
+    email[0] = 0;
+    
+    char gitconfigPath[MAX_PATH];
+    if (!GetGitConfigPath(gitconfigPath, MAX_PATH)) return;
+    
+    FILE* f = fopen(gitconfigPath, "rb");
+    if (!f) return;
+    
+    fseek(f, 0, SEEK_END);
+    long length = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char* data = (char*)malloc(length + 1);
+    fread(data, 1, length, f);
+    data[length] = 0;
+    fclose(f);
+    
+    // 简单的 INI 解析
+    int inUserSection = 0;
+    char* line = data;
+    while (line && *line) {
+        while (*line == ' ' || *line == '\t') line++;
+        
+        char* lineEnd = strchr(line, '\n');
+        if (lineEnd) *lineEnd = 0;
+        
+        int lineLen = strlen(line);
+        if (lineLen > 0 && line[lineLen-1] == '\r') line[lineLen-1] = 0;
+        
+        if (line[0] == '[') {
+            inUserSection = (strncmp(line, "[user]", 6) == 0);
+        } else if (inUserSection && line[0] != '#' && line[0] != ';') {
+            char* eq = strchr(line, '=');
+            if (eq) {
+                *eq = 0;
+                char* key = line;
+                char* val = eq + 1;
+                
+                int keyLen = strlen(key);
+                while (keyLen > 0 && (key[keyLen-1] == ' ' || key[keyLen-1] == '\t')) key[--keyLen] = 0;
+                while (*val == ' ' || *val == '\t') val++;
+                
+                if (strcmp(key, "name") == 0 && name[0] == 0) {
+                    strncpy(name, val, NAME_LEN - 1);
+                    name[NAME_LEN - 1] = 0;
+                } else if (strcmp(key, "email") == 0 && email[0] == 0) {
+                    strncpy(email, val, EMAIL_LEN - 1);
+                    email[EMAIL_LEN - 1] = 0;
+                }
+            }
+        }
+        line = lineEnd ? lineEnd + 1 : NULL;
+    }
+    free(data);
+}
+
+// 直接修改 .gitconfig 文件设置全局配置 (UTF-8 编码，避免命令行乱码)
 int SetGlobalConfig(const char* name, const char* email, const char* sshKeyPath) {
-    char cmd[2048];
+    char gitconfigPath[MAX_PATH];
+    if (!GetGitConfigPath(gitconfigPath, MAX_PATH)) return 0;
     
-    snprintf(cmd, sizeof(cmd), "git config --global --replace-all user.name \"%s\"", name);
-    if (!RunCmd(cmd, NULL, 0)) return 0;
+    // 读取现有配置
+    char* data = NULL;
+    long length = 0;
+    FILE* f = fopen(gitconfigPath, "rb");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        length = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        data = (char*)malloc(length + 1);
+        fread(data, 1, length, f);
+        data[length] = 0;
+        fclose(f);
+    }
     
-    snprintf(cmd, sizeof(cmd), "git config --global --replace-all user.email \"%s\"", email);
-    if (!RunCmd(cmd, NULL, 0)) return 0;
+    // 准备新配置内容
+    char newConfig[8192] = "";
+    int hasUserSection = 0;
+    int hasCoreSection = 0;
+    int wroteUserName = 0;
+    int wroteUserEmail = 0;
+    int wroteSshCommand = 0;
     
-    if (strlen(sshKeyPath) > 0) {
+    if (data) {
+        char* line = data;
+        char currentSection[64] = "";
+        
+        while (line && *line) {
+            char* lineEnd = strchr(line, '\n');
+            char lineBuffer[1024];
+            int lineLen = lineEnd ? (lineEnd - line) : strlen(line);
+            if (lineLen >= sizeof(lineBuffer)) lineLen = sizeof(lineBuffer) - 1;
+            strncpy(lineBuffer, line, lineLen);
+            lineBuffer[lineLen] = 0;
+            
+            // 去除行尾 \r
+            int bufLen = strlen(lineBuffer);
+            if (bufLen > 0 && lineBuffer[bufLen-1] == '\r') lineBuffer[bufLen-1] = 0;
+            
+            // 检查节头
+            char* trimmed = lineBuffer;
+            while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
+            
+            if (trimmed[0] == '[') {
+                // 如果离开 [user] 节但还没写入 name/email，现在写入
+                if (strcmp(currentSection, "user") == 0) {
+                    if (!wroteUserName) {
+                        strcat(newConfig, "\tname = ");
+                        strcat(newConfig, name);
+                        strcat(newConfig, "\n");
+                        wroteUserName = 1;
+                    }
+                    if (!wroteUserEmail) {
+                        strcat(newConfig, "\temail = ");
+                        strcat(newConfig, email);
+                        strcat(newConfig, "\n");
+                        wroteUserEmail = 1;
+                    }
+                }
+                // 如果离开 [core] 节但还没写入 sshCommand，现在写入
+                if (strcmp(currentSection, "core") == 0 && strlen(sshKeyPath) > 0 && !wroteSshCommand) {
+                    char sshPath[1024];
+                    int j = 0;
+                    for (int i = 0; sshKeyPath[i]; i++) {
+                        if (sshKeyPath[i] == '\\') sshPath[j++] = '/';
+                        else sshPath[j++] = sshKeyPath[i];
+                    }
+                    sshPath[j] = 0;
+                    strcat(newConfig, "\tsshCommand = ssh -i \"");
+                    strcat(newConfig, sshPath);
+                    strcat(newConfig, "\" -o IdentitiesOnly=yes\n");
+                    wroteSshCommand = 1;
+                }
+                
+                // 更新当前节
+                if (strncmp(trimmed, "[user]", 6) == 0) {
+                    strcpy(currentSection, "user");
+                    hasUserSection = 1;
+                } else if (strncmp(trimmed, "[core]", 6) == 0) {
+                    strcpy(currentSection, "core");
+                    hasCoreSection = 1;
+                } else {
+                    currentSection[0] = 0;
+                }
+                strcat(newConfig, lineBuffer);
+                strcat(newConfig, "\n");
+            }
+            // 处理 [user] 节的配置项
+            else if (strcmp(currentSection, "user") == 0) {
+                char* eq = strchr(trimmed, '=');
+                if (eq) {
+                    char key[64];
+                    int keyLen = eq - trimmed;
+                    strncpy(key, trimmed, keyLen);
+                    key[keyLen] = 0;
+                    // 去除 key 尾部空白
+                    while (keyLen > 0 && (key[keyLen-1] == ' ' || key[keyLen-1] == '\t')) key[--keyLen] = 0;
+                    
+                    if (strcmp(key, "name") == 0) {
+                        strcat(newConfig, "\tname = ");
+                        strcat(newConfig, name);
+                        strcat(newConfig, "\n");
+                        wroteUserName = 1;
+                    } else if (strcmp(key, "email") == 0) {
+                        strcat(newConfig, "\temail = ");
+                        strcat(newConfig, email);
+                        strcat(newConfig, "\n");
+                        wroteUserEmail = 1;
+                    } else {
+                        strcat(newConfig, lineBuffer);
+                        strcat(newConfig, "\n");
+                    }
+                } else {
+                    strcat(newConfig, lineBuffer);
+                    strcat(newConfig, "\n");
+                }
+            }
+            // 处理 [core] 节的配置项
+            else if (strcmp(currentSection, "core") == 0) {
+                char* eq = strchr(trimmed, '=');
+                if (eq) {
+                    char key[64];
+                    int keyLen = eq - trimmed;
+                    strncpy(key, trimmed, keyLen);
+                    key[keyLen] = 0;
+                    while (keyLen > 0 && (key[keyLen-1] == ' ' || key[keyLen-1] == '\t')) key[--keyLen] = 0;
+                    
+                    if (strcmp(key, "sshCommand") == 0) {
+                        if (strlen(sshKeyPath) > 0) {
+                            char sshPath[1024];
+                            int j = 0;
+                            for (int i = 0; sshKeyPath[i]; i++) {
+                                if (sshKeyPath[i] == '\\') sshPath[j++] = '/';
+                                else sshPath[j++] = sshKeyPath[i];
+                            }
+                            sshPath[j] = 0;
+                            strcat(newConfig, "\tsshCommand = ssh -i \"");
+                            strcat(newConfig, sshPath);
+                            strcat(newConfig, "\" -o IdentitiesOnly=yes\n");
+                        }
+                        // 如果 sshKeyPath 为空，不写入（相当于删除）
+                        wroteSshCommand = 1;
+                    } else {
+                        strcat(newConfig, lineBuffer);
+                        strcat(newConfig, "\n");
+                    }
+                } else {
+                    strcat(newConfig, lineBuffer);
+                    strcat(newConfig, "\n");
+                }
+            }
+            // 其他节，原样保留
+            else {
+                strcat(newConfig, lineBuffer);
+                strcat(newConfig, "\n");
+            }
+            
+            line = lineEnd ? lineEnd + 1 : NULL;
+        }
+        
+        // 文件结束时，检查是否还在某个节中需要写入
+        if (strcmp(currentSection, "user") == 0) {
+            if (!wroteUserName) {
+                strcat(newConfig, "\tname = ");
+                strcat(newConfig, name);
+                strcat(newConfig, "\n");
+                wroteUserName = 1;
+            }
+            if (!wroteUserEmail) {
+                strcat(newConfig, "\temail = ");
+                strcat(newConfig, email);
+                strcat(newConfig, "\n");
+                wroteUserEmail = 1;
+            }
+        }
+        if (strcmp(currentSection, "core") == 0 && strlen(sshKeyPath) > 0 && !wroteSshCommand) {
+            char sshPath[1024];
+            int j = 0;
+            for (int i = 0; sshKeyPath[i]; i++) {
+                if (sshKeyPath[i] == '\\') sshPath[j++] = '/';
+                else sshPath[j++] = sshKeyPath[i];
+            }
+            sshPath[j] = 0;
+            strcat(newConfig, "\tsshCommand = ssh -i \"");
+            strcat(newConfig, sshPath);
+            strcat(newConfig, "\" -o IdentitiesOnly=yes\n");
+            wroteSshCommand = 1;
+        }
+        
+        free(data);
+    }
+    
+    // 如果没有 [user] 节，添加
+    if (!hasUserSection) {
+        strcat(newConfig, "[user]\n");
+        strcat(newConfig, "\tname = ");
+        strcat(newConfig, name);
+        strcat(newConfig, "\n");
+        strcat(newConfig, "\temail = ");
+        strcat(newConfig, email);
+        strcat(newConfig, "\n");
+        wroteUserName = 1;
+        wroteUserEmail = 1;
+    }
+    
+    // 如果需要 sshCommand 但没有 [core] 节，添加
+    if (strlen(sshKeyPath) > 0 && !wroteSshCommand) {
+        if (!hasCoreSection) {
+            strcat(newConfig, "[core]\n");
+        }
         char sshPath[1024];
         int j = 0;
         for (int i = 0; sshKeyPath[i]; i++) {
-             if (sshKeyPath[i] == '\\') sshPath[j++] = '/';
-             else sshPath[j++] = sshKeyPath[i];
+            if (sshKeyPath[i] == '\\') sshPath[j++] = '/';
+            else sshPath[j++] = sshKeyPath[i];
         }
         sshPath[j] = 0;
-        
-        // 转义引号
-        snprintf(cmd, sizeof(cmd), "git config --global --replace-all core.sshCommand \"ssh -i \\\"%s\\\" -o IdentitiesOnly=yes\"", sshPath);
-        if (!RunCmd(cmd, NULL, 0)) return 0;
-    } else {
-        RunCmd("git config --global --unset-all core.sshCommand", NULL, 0);
+        strcat(newConfig, "\tsshCommand = ssh -i \"");
+        strcat(newConfig, sshPath);
+        strcat(newConfig, "\" -o IdentitiesOnly=yes\n");
     }
+    
+    // 写入文件 (UTF-8)
+    f = fopen(gitconfigPath, "wb");
+    if (!f) return 0;
+    fwrite(newConfig, 1, strlen(newConfig), f);
+    fclose(f);
     
     return 1;
 }
