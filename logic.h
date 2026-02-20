@@ -28,6 +28,7 @@ typedef struct {
 void GetConfigDir(char* buffer, int size);
 void LoadConfig(Config* config);
 void SaveConfig(Config* config);
+void AutoImportGlobalIdentity(Config* config); // 首次使用时自动导入当前 Git 身份
 
 // Git 操作
 void GetGlobalConfig(char* name, char* email);

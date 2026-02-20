@@ -1,6 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
 
+:: 尝试关闭正在运行的进程
+taskkill /F /IM GitAccountManager.exe >nul 2>&1
+
 :: 检查 GCC
 gcc --version >nul 2>&1
 if %errorlevel% equ 0 (

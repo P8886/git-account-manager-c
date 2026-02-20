@@ -39,6 +39,22 @@ char currentEditID[ID_LEN] = "";
 BOOL isDarkMode = FALSE;
 HBRUSH hBrushDark, hBrushLight, hBrushControlDark;
 HFONT hGlobalFont = NULL; // 全局字体句柄
+float g_dpiScale = 1.0f;  // DPI 缩放比例 (2K屏幕通常为 1.25 或 1.5)
+
+// DPI 缩放辅助函数
+int DPI(int value) {
+    return (int)(value * g_dpiScale);
+}
+
+// 获取系统 DPI 缩放比例
+void InitDPIScale() {
+    HDC hdc = GetDC(NULL);
+    if (hdc) {
+        int dpi = GetDeviceCaps(hdc, LOGPIXELSX);
+        g_dpiScale = dpi / 96.0f; // 96 是标准 DPI
+        ReleaseDC(NULL, hdc);
+    }
+}
 
 // 动态加载 SetWindowTheme
 typedef HRESULT (WINAPI *PSetWindowTheme)(HWND, LPCWSTR, LPCWSTR);
@@ -134,15 +150,15 @@ void SetTitleBarTheme(HWND hwnd, BOOL dark) {
 LRESULT CALLBACK MsgBoxProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
-        HFONT hFont = CreateFontW(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+        HFONT hFont = CreateFontW(DPI(18), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
         
         // 获取参数
         CREATESTRUCT* pCreate = (CREATESTRUCT*)lParam;
         LPCWSTR text = (LPCWSTR)pCreate->lpCreateParams;
         
-        // 内容文本
+        // 内容文本 (DPI 缩放)
         HWND hStatic = CreateWindowW(L"STATIC", text, WS_CHILD | WS_VISIBLE | SS_CENTER, 
-            20, 30, 310, 60, hwnd, NULL, NULL, NULL);
+            DPI(20), DPI(30), DPI(310), DPI(60), hwnd, NULL, NULL, NULL);
         SendMessageW(hStatic, WM_SETFONT, (WPARAM)hFont, TRUE);
         break;
     }
@@ -208,8 +224,8 @@ int ShowMessage(HWND owner, LPCWSTR text, LPCWSTR title, UINT type) {
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     RegisterClassW(&wc);
 
-    int width = 350;
-    int height = 180;
+    int width = DPI(350);
+    int height = DPI(180);
     
     // 计算居中位置
     RECT rcOwner;
@@ -224,19 +240,19 @@ int ShowMessage(HWND owner, LPCWSTR text, LPCWSTR title, UINT type) {
     SetProp(hMsgBox, L"ResultPtr", &result);
     SetProp(hMsgBox, L"MsgType", (HANDLE)(UINT_PTR)type);
 
-    // 创建按钮
-    HFONT hFont = CreateFontW(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+    // 创建按钮 (DPI 缩放)
+    HFONT hFont = CreateFontW(DPI(18), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
     
     if (type == MB_YESNO) {
         HWND hBtnYes = CreateWindowW(L"BUTTON", L"是(Y)", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW, 
-            60, 100, 100, 26, hMsgBox, (HMENU)IDYES, NULL, NULL);
+            DPI(60), DPI(100), DPI(100), DPI(26), hMsgBox, (HMENU)IDYES, NULL, NULL);
         HWND hBtnNo = CreateWindowW(L"BUTTON", L"否(N)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW, 
-            190, 100, 100, 26, hMsgBox, (HMENU)IDNO, NULL, NULL);
+            DPI(190), DPI(100), DPI(100), DPI(26), hMsgBox, (HMENU)IDNO, NULL, NULL);
         SendMessageW(hBtnYes, WM_SETFONT, (WPARAM)hFont, TRUE);
         SendMessageW(hBtnNo, WM_SETFONT, (WPARAM)hFont, TRUE);
     } else {
         HWND hBtn = CreateWindowW(L"BUTTON", L"确定", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW, 
-            125, 100, 100, 26, hMsgBox, (HMENU)ID_BTN_MSG_OK, NULL, NULL);
+            DPI(125), DPI(100), DPI(100), DPI(26), hMsgBox, (HMENU)ID_BTN_MSG_OK, NULL, NULL);
         SendMessageW(hBtn, WM_SETFONT, (WPARAM)hFont, TRUE);
     }
 
@@ -323,73 +339,73 @@ void ApplyTheme(HWND hwnd) {
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
-        // 使用 18px 字体
-        hGlobalFont = CreateFontW(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+        // 根据 DPI 缩放创建字体 (基础 18px)
+        hGlobalFont = CreateFontW(DPI(18), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
         
         hBrushDark = CreateSolidBrush(RGB(32, 32, 32));
         hBrushControlDark = CreateSolidBrush(RGB(50, 50, 50));
         hBrushLight = GetSysColorBrush(COLOR_WINDOW);
 
-        // 布局常量
-        int margin = 25;
-        int listWidth = 200;
-        int rightX = margin + listWidth + 25;
-        int rightWidth = 340;
+        // 布局常量 (使用 DPI 缩放)
+        int margin = DPI(25);
+        int listWidth = DPI(200);
+        int rightX = margin + listWidth + DPI(25);
+        int rightWidth = DPI(340);
         
-        // 统一高度：所有控件（输入框、按钮、下拉框）均为 26px
-        int ctrlH = 26;
-        int labelWidth = 70;
-        int inputX = rightX + labelWidth + 10;
-        int inputWidth = rightWidth - labelWidth - 10;
-        int rowGap = 16; // 统一行间距
+        // 统一高度：所有控件（输入框、按钮、下拉框）
+        int ctrlH = DPI(26);
+        int labelWidth = DPI(70);
+        int inputX = rightX + labelWidth + DPI(10);
+        int inputWidth = rightWidth - labelWidth - DPI(10);
+        int rowGap = DPI(16); // 统一行间距
         int y = margin;
 
         // 左侧列表（高度稍后根据右侧内容确定）
         // 先占位，后面设置高度
         hList = CreateWindowW(L"LISTBOX", NULL, WS_CHILD | WS_VISIBLE | WS_BORDER | LBS_NOTIFY | WS_VSCROLL,
-            margin, y, listWidth, 100, hwnd, (HMENU)ID_LIST, NULL, NULL);
+            margin, y, listWidth, DPI(100), hwnd, (HMENU)ID_LIST, NULL, NULL);
         
         // Row 1: 用户名
-        CreateWindowW(L"STATIC", L"用户名:", WS_CHILD | WS_VISIBLE, rightX, y + 4, labelWidth, 20, hwnd, NULL, NULL, NULL);
+        CreateWindowW(L"STATIC", L"用户名:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
         hName = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 
             inputX, y, inputWidth, ctrlH, hwnd, (HMENU)ID_EDIT_NAME, NULL, NULL);
 
         y += ctrlH + rowGap;
 
         // Row 2: 邮箱
-        CreateWindowW(L"STATIC", L"邮箱:", WS_CHILD | WS_VISIBLE, rightX, y + 4, labelWidth, 20, hwnd, NULL, NULL, NULL);
+        CreateWindowW(L"STATIC", L"邮箱:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
         hEmail = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 
             inputX, y, inputWidth, ctrlH, hwnd, (HMENU)ID_EDIT_EMAIL, NULL, NULL);
 
         y += ctrlH + rowGap;
 
         // Row 3: SSH密钥 标签 + 生成按钮
-        CreateWindowW(L"STATIC", L"SSH密钥:", WS_CHILD | WS_VISIBLE, rightX, y + 4, labelWidth, 20, hwnd, NULL, NULL, NULL);
-        int genBtnW = 70;
+        CreateWindowW(L"STATIC", L"SSH密钥:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
+        int genBtnW = DPI(70);
         hBtnGenerate = CreateWindowW(L"BUTTON", L"生成", WS_CHILD | WS_VISIBLE, 
             rightX + rightWidth - genBtnW, y, genBtnW, ctrlH, hwnd, (HMENU)ID_BTN_GENERATE, NULL, NULL);
 
-        y += ctrlH + 8; // SSH 组内间距小一点
+        y += ctrlH + DPI(8); // SSH 组内间距小一点
 
         // Row 4: SSH ComboBox + 浏览按钮
-        int browseBtnW = 40;
-        int comboW = rightWidth - browseBtnW - 5;
+        int browseBtnW = DPI(40);
+        int comboW = rightWidth - browseBtnW - DPI(5);
         hSSH = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL, 
-            rightX, y, comboW, 200, hwnd, (HMENU)ID_COMBO_SSH, NULL, NULL);
-        SendMessage(hSSH, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)22);
+            rightX, y, comboW, DPI(200), hwnd, (HMENU)ID_COMBO_SSH, NULL, NULL);
+        SendMessage(hSSH, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
         CreateWindowW(L"BUTTON", L"...", WS_CHILD | WS_VISIBLE, 
-            rightX + comboW + 5, y, browseBtnW, ctrlH, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
+            rightX + comboW + DPI(5), y, browseBtnW, ctrlH, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
 
-        y += ctrlH + rowGap + 4;
+        y += ctrlH + rowGap + DPI(4);
 
         // Row 5: 添加/取消/删除 按钮组
-        int btnWidth = 100;
+        int btnWidth = DPI(100);
         hBtnSave = CreateWindowW(L"BUTTON", L"添加账户", WS_CHILD | WS_VISIBLE, rightX, y, btnWidth, ctrlH, hwnd, (HMENU)ID_BTN_SAVE, NULL, NULL);
-        hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE, rightX + btnWidth + 10, y, 70, ctrlH, hwnd, (HMENU)ID_BTN_CANCEL, NULL, NULL);
+        hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE, rightX + btnWidth + DPI(10), y, DPI(70), ctrlH, hwnd, (HMENU)ID_BTN_CANCEL, NULL, NULL);
         ShowWindow(hBtnCancel, SW_HIDE);
-        CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE, rightX + rightWidth - 80, y, 80, ctrlH, hwnd, (HMENU)ID_BTN_DELETE, NULL, NULL);
+        CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE, rightX + rightWidth - DPI(80), y, DPI(80), ctrlH, hwnd, (HMENU)ID_BTN_DELETE, NULL, NULL);
 
-        y += ctrlH + rowGap + 4;
+        y += ctrlH + rowGap + DPI(4);
 
         // Row 6: 切换到选中账户
         CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE, rightX, y, rightWidth, ctrlH, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
@@ -399,16 +415,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         GetClientRect(hwnd, &rcClient);
         int clientH = rcClient.bottom;
         int statusY = clientH - margin - ctrlH;
-        int statusWidth = rcClient.right - margin * 2 - ctrlH - 5; // 留出主题按钮空间
+        int statusWidth = rcClient.right - margin * 2 - ctrlH - DPI(5); // 留出主题按钮空间
         hStatus = CreateWindowW(L"STATIC", L"Ready", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | WS_BORDER, 
             margin, statusY, statusWidth, ctrlH, hwnd, (HMENU)ID_STATUS, NULL, NULL);
 
         // 夜间模式切换按钮
         HWND hBtnTheme = CreateWindowW(L"BUTTON", L"🌙", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
-            margin + statusWidth + 5, statusY, ctrlH, ctrlH, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
+            margin + statusWidth + DPI(5), statusY, ctrlH, ctrlH, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
 
-        // 列表高度：从顶部边距到状态栏上方 15px
-        int listHeight = statusY - margin - 15;
+        // 列表高度：从顶部边距到状态栏上方
+        int listHeight = statusY - margin - DPI(15);
         SetWindowPos(hList, NULL, 0, 0, listWidth, listHeight, SWP_NOMOVE | SWP_NOZORDER);
 
         // 设置全局字体
@@ -423,6 +439,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         ApplyTheme(hwnd);
 
         LoadConfig(&config);
+        AutoImportGlobalIdentity(&config); // 首次使用时自动导入当前 Git 全局身份
+        if (config.account_count > 0 && config.active_id[0] != 0) {
+            SaveConfig(&config); // 如果有导入则保存配置
+        }
         RefreshList();
         UpdateStatus();
         LoadSSHKeysToCombo();
@@ -659,6 +679,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // 初始化 DPI 缩放比例 (支持 2K/4K 高分屏)
+    InitDPIScale();
+    
     WNDCLASSW wc = { 0 };
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
@@ -669,10 +692,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     RegisterClassW(&wc);
 
-    // 调整窗口大小 (增加宽度和高度以适应更宽松的布局)
+    // 窗口大小根据 DPI 缩放 (基础 640x480)
     HWND hwnd = CreateWindowW(L"GitAccountManagerC", L"Git Account Manager",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
-        CW_USEDEFAULT, CW_USEDEFAULT, 640, 480,
+        CW_USEDEFAULT, CW_USEDEFAULT, DPI(640), DPI(480),
         NULL, NULL, hInstance, NULL);
 
     ShowWindow(hwnd, nCmdShow);

@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <shlobj.h>
-
+#include <time.h>
 // --- JSON 解析辅助函数 ---
 
 typedef struct {
@@ -64,7 +64,7 @@ void parse_string(JsonParser* p, char* buffer, int size) {
 void GetConfigDir(char* buffer, int size) {
     char path[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, path))) {
-        snprintf(buffer, size, "%s\\git-account-manager-go", path);
+        snprintf(buffer, size, "%s\\git-account-manager-c", path);
         CreateDirectoryA(buffer, NULL);
     }
 }
@@ -149,6 +149,29 @@ void LoadConfig(Config* config) {
     free(data);
 }
 
+// 前向声明 (用于自动导入功能)
+void GetGlobalConfig(char* name, char* email);
+
+// 自动导入当前 Git 全局身份到配置 (首次使用时)
+void AutoImportGlobalIdentity(Config* config) {
+    if (config->account_count > 0) return; // 已有账户则不导入
+    
+    char name[NAME_LEN] = "";
+    char email[EMAIL_LEN] = "";
+    GetGlobalConfig(name, email);
+    
+    // 如果有有效的全局配置，自动添加到账户列表
+    if (strlen(name) > 0 && strlen(email) > 0) {
+        Account* acc = &config->accounts[0];
+        snprintf(acc->id, ID_LEN, "%lld", (long long)time(NULL));
+        strcpy(acc->name, name);
+        strcpy(acc->email, email);
+        acc->ssh_key_path[0] = 0; // SSH Key 默认为空
+        config->account_count = 1;
+        strcpy(config->active_id, acc->id); // 设为当前激活账户
+    }
+}
+
 void SaveConfig(Config* config) {
     char dir[MAX_PATH];
     GetConfigDir(dir, MAX_PATH);
@@ -215,9 +238,9 @@ int RunCmd(const char* cmd, char* output, int outSize) {
     char cmdMutable[2048];
     strcpy(cmdMutable, cmd);
 
-    // 加上 cmd /c 以确保能找到 PATH 中的命令
+    // 加上 cmd /c 并设置 UTF-8 代码页以正确处理中文
     char fullCmd[2048];
-    snprintf(fullCmd, sizeof(fullCmd), "cmd /c %s", cmd);
+    snprintf(fullCmd, sizeof(fullCmd), "cmd /c chcp 65001 >nul & %s", cmd);
 
     if (!CreateProcess(NULL, fullCmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
         CloseHandle(hRead);

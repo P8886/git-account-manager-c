@@ -21,6 +21,10 @@ extern HBRUSH hBrushDark;
 extern HBRUSH hBrushControlDark;
 extern HBRUSH hBrushLight;
 extern HFONT hGlobalFont;
+extern float g_dpiScale; // DPI 缩放比例
+
+// DPI 缩放辅助函数
+int DPI(int value);
 
 // main.c 中辅助函数的如前声明
 wchar_t* U8ToW(const char* utf8);
