@@ -114,6 +114,7 @@ void LoadConfig(Config* config) {
                                     else if (strcmp(accKey, "name") == 0) strcpy(acc->name, val);
                                     else if (strcmp(accKey, "email") == 0) strcpy(acc->email, val);
                                     else if (strcmp(accKey, "ssh_key_path") == 0) strcpy(acc->ssh_key_path, val);
+                                    else if (strcmp(accKey, "git_host") == 0) strcpy(acc->git_host, val);
                                     
                                     if (peek(&p) == ',') match(&p, ',');
                                 }
@@ -167,6 +168,7 @@ void AutoImportGlobalIdentity(Config* config) {
         strcpy(acc->name, name);
         strcpy(acc->email, email);
         acc->ssh_key_path[0] = 0; // SSH Key 默认为空
+        strcpy(acc->git_host, "github.com"); // 默认为 github.com
         config->account_count = 1;
         strcpy(config->active_id, acc->id); // 设为当前激活账户
     }
@@ -202,7 +204,8 @@ void SaveConfig(Config* config) {
         }
         sshEscaped[k] = 0;
         
-        fprintf(f, "      \"ssh_key_path\": \"%s\"\n", sshEscaped);
+        fprintf(f, "      \"ssh_key_path\": \"%s\",\n", sshEscaped);
+        fprintf(f, "      \"git_host\": \"%s\"\n", acc->git_host);
         fprintf(f, "    }%s\n", (i < config->account_count - 1) ? "," : "");
     }
     fprintf(f, "  ],\n");
@@ -625,4 +628,184 @@ int GenerateSSHKey(const char* name, const char* email, const char* type, char* 
         return 1;
     }
     return 0;
+}
+
+// 从 SSH config 中获取对应密钥的 Host
+int GetHostFromSSHConfig(const char* keyPath, char* outHost, int maxLen) {
+    if (!keyPath || !strlen(keyPath)) return 0;
+    
+    char keyName[MAX_PATH];
+    const char* lastSlash = strrchr(keyPath, '\\');
+    strncpy(keyName, lastSlash ? lastSlash + 1 : keyPath, MAX_PATH - 1);
+    
+    char userProfile[MAX_PATH];
+    if (FAILED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, userProfile))) return 0;
+    
+    char sshConfigPath[MAX_PATH];
+    snprintf(sshConfigPath, MAX_PATH, "%s\\.ssh\\config", userProfile);
+    
+    FILE* f = fopen(sshConfigPath, "rb");
+    if (!f) return 0;
+    
+    char line[512];
+    char currentHost[256] = "";
+    int found = 0;
+    
+    char searchPattern[512];
+    snprintf(searchPattern, sizeof(searchPattern), "IdentityFile ~/.ssh/%s", keyName);
+    
+    while (fgets(line, sizeof(line), f)) {
+        char* trimmed = line;
+        while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
+        
+        if (strncmp(trimmed, "Host ", 5) == 0) {
+            char* p = trimmed + 5;
+            while (*p == ' ' || *p == '\t') p++;
+            char* end = p;
+            while (*end && *end != '\r' && *end != '\n' && *end != ' ' && *end != '\t') end++;
+            int len = end - p;
+            if (len < sizeof(currentHost)) {
+                strncpy(currentHost, p, len);
+                currentHost[len] = '\0';
+            }
+        }
+        
+        if (strstr(trimmed, searchPattern)) { // Found the IdentityFile line
+            if (strlen(currentHost) > 0) {
+                strncpy(outHost, currentHost, maxLen - 1);
+                outHost[maxLen - 1] = '\0';
+                found = 1;
+            }
+            break;
+        }
+    }
+    
+    fclose(f);
+    return found;
+}
+
+// 通用的更新 SSH config 的逻辑：读入内存行数组，寻找对应 block，修改 Host/HostName，写回
+static int ModifySSHConfigLines(const char* keyName, const char* email, const char* host) {
+    char userProfile[MAX_PATH];
+    if (FAILED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, userProfile))) return 0;
+    
+    char sshConfigPath[MAX_PATH];
+    snprintf(sshConfigPath, MAX_PATH, "%s\\.ssh\\config", userProfile);
+    
+    int maxLines = 1000;
+    char (*lines)[512] = malloc(maxLines * 512); // 分配大缓冲区
+    int lineCount = 0;
+    FILE* f = fopen(sshConfigPath, "rb");
+    if (f) {
+        char line[512];
+        while (fgets(line, sizeof(line), f) && lineCount < maxLines) {
+            strcpy(lines[lineCount++], line);
+        }
+        fclose(f);
+    }
+    
+    int targetHostLine = -1;
+    int currentHostLine = -1;
+    int keyAlreadyExists = 0;
+    char searchPattern[512];
+    snprintf(searchPattern, sizeof(searchPattern), "IdentityFile ~/.ssh/%s", keyName);
+    
+    for (int i = 0; i < lineCount; i++) {
+        char* trimmed = lines[i];
+        while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
+        
+        if (strncmp(trimmed, "Host ", 5) == 0) {
+            currentHostLine = i;
+        }
+        
+        if (strstr(trimmed, searchPattern)) {
+            keyAlreadyExists = 1;
+            targetHostLine = currentHostLine;
+            break;
+        }
+    }
+    
+    FILE* fout = fopen(sshConfigPath, "wb");
+    if (!fout) {
+        free(lines);
+        return 0;
+    }
+    
+    if (keyAlreadyExists) {
+        if (targetHostLine != -1) {
+            snprintf(lines[targetHostLine], 512, "Host %s\n", host);
+            for (int i = targetHostLine + 1; i < lineCount; i++) {
+                char* trimmed = lines[i];
+                while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
+                if (strncmp(trimmed, "Host ", 5) == 0) break;
+                if (strncmp(trimmed, "HostName ", 9) == 0) {
+                    snprintf(lines[i], 512, "\tHostName %s\n", host);
+                    break;
+                }
+            }
+        }
+        for (int i = 0; i < lineCount; i++) {
+            fwrite(lines[i], 1, strlen(lines[i]), fout);
+            // Ensure trailing newline for lines not ending with one
+            if (lines[i][strlen(lines[i])-1] != '\n' && i < lineCount - 1) {
+                fwrite("\n", 1, 1, fout);
+            }
+        }
+        // Ensure ends with newline
+        if (lineCount > 0 && lines[lineCount-1][strlen(lines[lineCount-1])-1] != '\n') {
+            fwrite("\n", 1, 1, fout);
+        }
+    } else {
+        // 先写回原来的
+        for (int i = 0; i < lineCount; i++) {
+            fwrite(lines[i], 1, strlen(lines[i]), fout);
+            if (lines[i][strlen(lines[i])-1] != '\n' && i < lineCount - 1) {
+                fwrite("\n", 1, 1, fout);
+            }
+        }
+        if (lineCount > 0 && lines[lineCount-1][strlen(lines[lineCount-1])-1] != '\n') {
+            fwrite("\n", 1, 1, fout);
+        }
+        
+        // 加上新的
+        char newBlock[2048];
+        snprintf(newBlock, sizeof(newBlock),
+            "# Git Host - %s\n"
+            "Host %s\n"
+            "\tHostName %s\n"
+            "\tUser git\n"
+            "\tIdentityFile ~/.ssh/%s\n"
+            "\tIdentitiesOnly yes\n"
+            "\tPreferredAuthentications publickey\n\n",
+            email, host, host, keyName);
+        fwrite(newBlock, 1, strlen(newBlock), fout);
+    }
+    
+    fclose(fout);
+    free(lines);
+    return 1;
+}
+
+// 为现有的 SSH 密钥创建或更新 SSH config
+int AddExistingKeyToSSHConfig(const char* keyPath, const char* email, const char* host) {
+    if (GetFileAttributesA(keyPath) == INVALID_FILE_ATTRIBUTES) return 0;
+    
+    char keyName[MAX_PATH];
+    const char* lastSlash = strrchr(keyPath, '\\');
+    strncpy(keyName, lastSlash ? lastSlash + 1 : keyPath, MAX_PATH - 1);
+    
+    return ModifySSHConfigLines(keyName, email, host);
+}
+
+// 更新 SSH config 文件，添加新密钥的配置
+static int UpdateSSHConfigWithKey(const char* keyName, const char* email, const char* host) {
+    return ModifySSHConfigLines(keyName, email, host);
+}
+
+// 生成 SSH 密钥并自动添加到 SSH config 和 Git 全局配置
+int GenerateSSHKeyAndUpdateConfig(const char* name, const char* email, const char* type, char* outPath, const char* host) {
+    if (!GenerateSSHKey(name, email, type, outPath)) return 0;
+    UpdateSSHConfigWithKey(name, email, host);
+    SetGlobalConfig(name, email, outPath);
+    return 1;
 }

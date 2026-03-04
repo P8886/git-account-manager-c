@@ -31,12 +31,14 @@
 #define ID_GROUP_DETAILS 112
 #define ID_LBL_DETAILS 113
 #define ID_BTN_GENERATE 114
+#define ID_COMBO_HOST 115
 
 // 全局变量
-HWND hList, hName, hEmail, hSSH, hStatus, hBtnSave, hBtnCancel, hLblDetails, hBtnGenerate;
+HWND hList, hName, hEmail, hSSH, hHost, hLblHost, hStatus, hBtnSave, hBtnCancel, hLblDetails, hBtnGenerate;
 Config config;
 char currentEditID[ID_LEN] = "";
 BOOL isDarkMode = FALSE;
+BOOL g_bIgnoreEditChange = FALSE;
 HBRUSH hBrushDark, hBrushLight, hBrushControlDark;
 HFONT hGlobalFont = NULL; // 全局字体句柄
 float g_dpiScale = 1.0f;  // DPI 缩放比例 (2K屏幕通常为 1.25 或 1.5)
@@ -86,6 +88,39 @@ char* WToU8(const wchar_t* wstr) {
     return buffer;
 }
 
+void UpdateHostVisibility() {
+    // 始终显示，不再隐藏
+}
+
+void OnSSHKeyChanged(const wchar_t* wSSHPath) {
+    if (wSSHPath && wcslen(wSSHPath) > 0) {
+        char u8Path[PATH_LEN];
+        strcpy(u8Path, WToU8(wSSHPath));
+        char foundHost[256] = "";
+        
+        if (GetHostFromSSHConfig(u8Path, foundHost, sizeof(foundHost)) && strlen(foundHost) > 0) {
+            SetWindowTextW(hHost, U8ToW(foundHost));
+        } else {
+            const wchar_t* filename = wcsrchr(wSSHPath, L'\\');
+            if (filename) filename++;
+            else filename = wSSHPath;
+            
+            const wchar_t* filenameUnix = wcsrchr(filename, L'/');
+            if (filenameUnix) filename = filenameUnix + 1;
+            
+            const wchar_t* id_pos = wcsstr(filename, L"id_");
+            if (id_pos) {
+                const wchar_t* host_part = id_pos + 3;
+                if (wcslen(host_part) > 0) {
+                    SetWindowTextW(hHost, host_part);
+                }
+            }
+        }
+    } else {
+        SetWindowTextW(hHost, L"");
+    }
+}
+
 // 刷新列表显示
 void RefreshList() {
     SendMessageW(hList, LB_RESETCONTENT, 0, 0);
@@ -120,10 +155,13 @@ void ClearForm() {
     SetWindowTextW(hName, L"");
     SetWindowTextW(hEmail, L"");
     SetWindowTextW(hSSH, L"");
+    SendMessageW(hHost, CB_SETCURSEL, -1, 0);
+    SetWindowTextW(hHost, L"");
     currentEditID[0] = 0;
     SetWindowTextW(hBtnSave, L"添加账户");
     ShowWindow(hBtnCancel, SW_HIDE);
     SendMessageW(hList, LB_SETCURSEL, -1, 0);
+    UpdateHostVisibility();
 }
 
 // 更新状态栏
@@ -318,6 +356,7 @@ void ApplyTheme(HWND hwnd) {
     LPCWSTR theme = isDarkMode ? L"DarkMode_Explorer" : NULL;
     MySetWindowTheme(hList, theme, NULL);
     MySetWindowTheme(hSSH, theme, NULL);
+    MySetWindowTheme(hHost, theme, NULL);
     // 切换按钮样式 (OwnerDraw) - 始终启用 OwnerDraw 以保持圆角风格一致
     int btnIds[] = {ID_BTN_BROWSE, ID_BTN_SAVE, ID_BTN_DELETE, ID_BTN_SWITCH, ID_BTN_CANCEL, ID_BTN_THEME, ID_BTN_GENERATE};
     for (int i = 0; i < 7; i++) {
@@ -362,19 +401,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         // 左侧列表（高度稍后根据右侧内容确定）
         // 先占位，后面设置高度
-        hList = CreateWindowW(L"LISTBOX", NULL, WS_CHILD | WS_VISIBLE | WS_BORDER | LBS_NOTIFY | WS_VSCROLL,
+        hList = CreateWindowW(L"LISTBOX", NULL, WS_CHILD | WS_VISIBLE | WS_BORDER | LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP,
             margin, y, listWidth, DPI(100), hwnd, (HMENU)ID_LIST, NULL, NULL);
         
         // Row 1: 用户名
         CreateWindowW(L"STATIC", L"用户名:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
-        hName = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 
+        hName = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 
             inputX, y, inputWidth, ctrlH, hwnd, (HMENU)ID_EDIT_NAME, NULL, NULL);
 
         y += ctrlH + rowGap;
 
         // Row 2: 邮箱
         CreateWindowW(L"STATIC", L"邮箱:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
-        hEmail = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 
+        hEmail = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 
             inputX, y, inputWidth, ctrlH, hwnd, (HMENU)ID_EDIT_EMAIL, NULL, NULL);
 
         y += ctrlH + rowGap;
@@ -382,7 +421,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // Row 3: SSH密钥 标签 + 生成按钮
         CreateWindowW(L"STATIC", L"SSH密钥:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
         int genBtnW = DPI(70);
-        hBtnGenerate = CreateWindowW(L"BUTTON", L"生成", WS_CHILD | WS_VISIBLE, 
+        hBtnGenerate = CreateWindowW(L"BUTTON", L"生成", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
             rightX + rightWidth - genBtnW, y, genBtnW, ctrlH, hwnd, (HMENU)ID_BTN_GENERATE, NULL, NULL);
 
         y += ctrlH + DPI(8); // SSH 组内间距小一点
@@ -390,25 +429,39 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // Row 4: SSH ComboBox + 浏览按钮
         int browseBtnW = DPI(40);
         int comboW = rightWidth - browseBtnW - DPI(5);
-        hSSH = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL, 
+        hSSH = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
             rightX, y, comboW, DPI(200), hwnd, (HMENU)ID_COMBO_SSH, NULL, NULL);
         SendMessage(hSSH, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
-        CreateWindowW(L"BUTTON", L"...", WS_CHILD | WS_VISIBLE, 
+        CreateWindowW(L"BUTTON", L"...", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
             rightX + comboW + DPI(5), y, browseBtnW, ctrlH, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
 
         y += ctrlH + rowGap + DPI(4);
 
-        // Row 5: 添加/取消/删除 按钮组
+        // Row 5: SSH Host
+        hLblHost = CreateWindowW(L"STATIC", L"SSH Host:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
+        hHost = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
+            inputX, y, inputWidth, DPI(180), hwnd, (HMENU)ID_COMBO_HOST, NULL, NULL);
+        SendMessage(hHost, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
+        
+        // 添加常见的Git服务
+        SendMessageW(hHost, CB_ADDSTRING, 0, (LPARAM)L"github.com");
+        SendMessageW(hHost, CB_ADDSTRING, 0, (LPARAM)L"gitlab.com");
+        SendMessageW(hHost, CB_ADDSTRING, 0, (LPARAM)L"gitee.com");
+        SendMessageW(hHost, CB_ADDSTRING, 0, (LPARAM)L"bitbucket.org");
+
+        y += ctrlH + rowGap;
+
+        // Row 6: 添加/取消/删除 按钮组
         int btnWidth = DPI(100);
-        hBtnSave = CreateWindowW(L"BUTTON", L"添加账户", WS_CHILD | WS_VISIBLE, rightX, y, btnWidth, ctrlH, hwnd, (HMENU)ID_BTN_SAVE, NULL, NULL);
-        hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE, rightX + btnWidth + DPI(10), y, DPI(70), ctrlH, hwnd, (HMENU)ID_BTN_CANCEL, NULL, NULL);
+        hBtnSave = CreateWindowW(L"BUTTON", L"添加账户", WS_CHILD | WS_VISIBLE | WS_TABSTOP, rightX, y, btnWidth, ctrlH, hwnd, (HMENU)ID_BTN_SAVE, NULL, NULL);
+        hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP, rightX + btnWidth + DPI(10), y, DPI(70), ctrlH, hwnd, (HMENU)ID_BTN_CANCEL, NULL, NULL);
         ShowWindow(hBtnCancel, SW_HIDE);
-        CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE, rightX + rightWidth - DPI(80), y, DPI(80), ctrlH, hwnd, (HMENU)ID_BTN_DELETE, NULL, NULL);
+        CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE | WS_TABSTOP, rightX + rightWidth - DPI(80), y, DPI(80), ctrlH, hwnd, (HMENU)ID_BTN_DELETE, NULL, NULL);
 
         y += ctrlH + rowGap + DPI(4);
 
-        // Row 6: 切换到选中账户
-        CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE, rightX, y, rightWidth, ctrlH, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
+        // Row 7: 切换到选中账户
+        CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE | WS_TABSTOP, rightX, y, rightWidth, ctrlH, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
 
         // 状态栏和列表高度：根据窗口客户区大小计算，状态栏贴底
         RECT rcClient;
@@ -446,6 +499,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         RefreshList();
         UpdateStatus();
         LoadSSHKeysToCombo();
+        UpdateHostVisibility();
         break;
     }
 
@@ -508,11 +562,48 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 Account* acc = &config.accounts[accIdx];
                 SetWindowTextW(hName, U8ToW(acc->name));
                 SetWindowTextW(hEmail, U8ToW(acc->email));
+                
+                g_bIgnoreEditChange = TRUE;
                 SetWindowTextW(hSSH, U8ToW(acc->ssh_key_path));
+                g_bIgnoreEditChange = FALSE;
+                
+                char foundHost[256] = "";
+                if (GetHostFromSSHConfig(acc->ssh_key_path, foundHost, sizeof(foundHost)) && strlen(foundHost) > 0) {
+                    SetWindowTextW(hHost, U8ToW(foundHost));
+                } else {
+                    SetWindowTextW(hHost, U8ToW(acc->git_host));
+                }
+
                 strcpy(currentEditID, acc->id);
                 SetWindowTextW(hBtnSave, L"更新账户");
                 ShowWindow(hBtnCancel, SW_SHOW);
+                UpdateHostVisibility();
             }
+        }
+        else if (id == ID_COMBO_HOST && HIWORD(wParam) == CBN_SELCHANGE) {
+            // Git服务Host选择变化时，获取选中的项目内容
+            int idx = SendMessageW(hHost, CB_GETCURSEL, 0, 0);
+            if (idx != CB_ERR) {
+                wchar_t buffer[HOST_LEN];
+                SendMessageW(hHost, CB_GETLBTEXT, idx, (LPARAM)buffer);
+                SetWindowTextW(hHost, buffer);
+            }
+        }
+        else if (id == ID_COMBO_SSH && HIWORD(wParam) == CBN_SELCHANGE) {
+            // ComboBox 选择变化时，获取选中的项目内容
+            int idx = SendMessageW(hSSH, CB_GETCURSEL, 0, 0);
+            if (idx != CB_ERR) {
+                wchar_t buffer[PATH_LEN];
+                SendMessageW(hSSH, CB_GETLBTEXT, idx, (LPARAM)buffer);
+                SetWindowTextW(hSSH, buffer);
+                OnSSHKeyChanged(buffer);
+            }
+        }
+        else if (id == ID_COMBO_SSH && HIWORD(wParam) == CBN_EDITCHANGE) {
+            if (g_bIgnoreEditChange) break;
+            wchar_t buffer[PATH_LEN];
+            GetWindowTextW(hSSH, buffer, PATH_LEN);
+            OnSSHKeyChanged(buffer);
         }
         else if (id == ID_BTN_BROWSE) {
             wchar_t buffer[MAX_PATH] = L"";
@@ -536,23 +627,34 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
             if (GetOpenFileNameW(&ofn)) {
                 SetWindowTextW(hSSH, buffer);
+                OnSSHKeyChanged(buffer);
             }
         }
         else if (id == ID_BTN_GENERATE) {
              char email[EMAIL_LEN] = "";
+             char host[HOST_LEN] = "github.com";
              // Check if account is selected in listbox
              int idx = SendMessageW(hList, LB_GETCURSEL, 0, 0);
              if (idx != LB_ERR) {
                  int accIdx = SendMessageW(hList, LB_GETITEMDATA, idx, 0);
                  if (accIdx >= 0 && accIdx < config.account_count) {
                      strcpy(email, config.accounts[accIdx].email);
+                     strcpy(host, config.accounts[accIdx].git_host);
+                 }
+             } else {
+                 wchar_t wHost[HOST_LEN];
+                 GetWindowTextW(hHost, wHost, HOST_LEN);
+                 if (wcslen(wHost) > 0) {
+                     strcpy(host, WToU8(wHost));
                  }
              }
              
              char outPath[MAX_PATH];
-             if (ShowGenerateKeyDialog(hwnd, email, outPath)) {
+             if (ShowGenerateKeyDialog(hwnd, email, host, outPath)) {
                   LoadSSHKeysToCombo(); // Refresh list
-                  SetWindowTextW(hSSH, U8ToW(outPath)); // Auto select
+                  wchar_t* wOutPath = U8ToW(outPath);
+                  SetWindowTextW(hSSH, wOutPath); // Auto select
+                  OnSSHKeyChanged(wOutPath);
              }
         }
         else if (id == ID_BTN_THEME) {
@@ -563,10 +665,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ClearForm();
         }
         else if (id == ID_BTN_SAVE) {
-            wchar_t wName[NAME_LEN], wEmail[EMAIL_LEN], wSSH[PATH_LEN];
+            wchar_t wName[NAME_LEN], wEmail[EMAIL_LEN], wSSH[PATH_LEN], wHost[HOST_LEN];
             GetWindowTextW(hName, wName, NAME_LEN);
             GetWindowTextW(hEmail, wEmail, EMAIL_LEN);
             GetWindowTextW(hSSH, wSSH, PATH_LEN);
+            GetWindowTextW(hHost, wHost, HOST_LEN);
 
             char* name = WToU8(wName);
             char nameBuf[NAME_LEN]; strcpy(nameBuf, name);
@@ -576,9 +679,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             
             char* ssh = WToU8(wSSH);
             char sshBuf[PATH_LEN]; strcpy(sshBuf, ssh);
+            
+            char* host = WToU8(wHost);
+            char hostBuf[HOST_LEN]; strcpy(hostBuf, host);
 
             if (strlen(nameBuf) == 0 || strlen(emailBuf) == 0) {
                 ShowMessage(hwnd, L"用户名和邮箱不能为空", L"错误", MB_OK);
+                return 0;
+            }
+            
+            // 简单的邮箱格式验证 (包含 @ 符号和 .)
+            char* atSign = strchr(emailBuf, '@');
+            if (!atSign || !strchr(atSign, '.')) {
+                ShowMessage(hwnd, L"请输入有效的邮箱格式 (例如: test@example.com)", L"错误", MB_OK);
                 return 0;
             }
 
@@ -589,6 +702,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         strcpy(config.accounts[i].name, nameBuf);
                         strcpy(config.accounts[i].email, emailBuf);
                         strcpy(config.accounts[i].ssh_key_path, sshBuf);
+                        strcpy(config.accounts[i].git_host, hostBuf);
                         break;
                     }
                 }
@@ -601,10 +715,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     strcpy(acc->name, nameBuf);
                     strcpy(acc->email, emailBuf);
                     strcpy(acc->ssh_key_path, sshBuf);
+                    strcpy(acc->git_host, hostBuf);
                     config.account_count++;
                     ShowMessage(hwnd, L"账户添加成功", L"成功", MB_OK);
                 }
             }
+            
+            // 如果指定了 SSH 密钥路径，自动添加到 SSH config
+            if (strlen(sshBuf) > 0 && strlen(hostBuf) > 0) {
+                AddExistingKeyToSSHConfig(sshBuf, emailBuf, hostBuf);
+            }
+            
             SaveConfig(&config);
             ClearForm();
             RefreshList();
@@ -701,9 +822,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ShowWindow(hwnd, nCmdShow);
 
     MSG msg;
-    while (GetMessage(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+    while (GetMessage(&msg, NULL, 0, 0) > 0) {
+        if (!IsDialogMessage(hwnd, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
     }
 
     return 0;

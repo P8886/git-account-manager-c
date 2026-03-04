@@ -17,6 +17,7 @@
 // 传递给对话框的数据结构
 typedef struct {
     char defaultEmail[EMAIL_LEN];
+    char host[HOST_LEN];
     char outName[64];
     char outEmail[EMAIL_LEN];
     char outType[16];
@@ -173,9 +174,14 @@ LRESULT CALLBACK GenKeyDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
 }
 
 // 显示生成密钥对话框的公共函数
-BOOL ShowGenerateKeyDialog(HWND owner, const char* defaultEmail, char* outPath) {
+BOOL ShowGenerateKeyDialog(HWND owner, const char* defaultEmail, const char* host, char* outPath) {
     GenKeyDialogData data = {0};
     strcpy(data.defaultEmail, defaultEmail);
+    if (host && strlen(host) > 0) {
+        strcpy(data.host, host);
+    } else {
+        strcpy(data.host, "github.com");
+    }
     data.success = FALSE;
 
     WNDCLASSW wc = {0};
@@ -213,7 +219,7 @@ BOOL ShowGenerateKeyDialog(HWND owner, const char* defaultEmail, char* outPath) 
     SetForegroundWindow(owner);
 
     if (data.success) {
-        if (GenerateSSHKey(data.outName, data.outEmail, data.outType, outPath)) {
+        if (GenerateSSHKeyAndUpdateConfig(data.outName, data.outEmail, data.outType, outPath, data.host)) {
             // 读取公钥内容并复制到剪贴板
             char pubPath[MAX_PATH];
             snprintf(pubPath, MAX_PATH, "%s.pub", outPath);
@@ -238,12 +244,12 @@ BOOL ShowGenerateKeyDialog(HWND owner, const char* defaultEmail, char* outPath) 
                         SetClipboardData(CF_TEXT, hMem);
                     }
                     CloseClipboard();
-                    ShowMessage(owner, L"密钥生成成功！\n公钥内容已复制到剪贴板", L"成功", MB_OK);
+                    ShowMessage(owner, L"密钥生成成功！\n公钥内容已复制到剪贴板，已自动添加到SSH config", L"成功", MB_OK);
                 } else {
-                    ShowMessage(owner, L"密钥生成成功！", L"成功", MB_OK);
+                    ShowMessage(owner, L"密钥生成成功！已自动添加到SSH config", L"成功", MB_OK);
                 }
             } else {
-                ShowMessage(owner, L"密钥生成成功！\n（无法读取公钥文件）", L"成功", MB_OK);
+                ShowMessage(owner, L"密钥生成成功！已自动添加到SSH config\n（无法读取公钥文件）", L"成功", MB_OK);
             }
             return TRUE;
         } else {
