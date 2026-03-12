@@ -135,7 +135,11 @@ void RemoveHostControl(int index) {
 // 重新定位下方的按钮控件以适应新增的host控件
 void RepositionLowerControls() {
     int rightX = DPI(25) + DPI(200) + DPI(25);  // 左侧列表宽度 + 间距
-    int rightWidth = DPI(340);
+    // 获取实际客户区大小，使输入框右边界与夜间模式按钮右边界对齐
+    RECT rcClient;
+    GetClientRect(hMainWnd, &rcClient);
+    int clientWidth = rcClient.right;  // 实际客户区宽度
+    int rightWidth = clientWidth - DPI(25) - rightX;  // 输入框右边界 = clientWidth - margin
     int ctrlH = DPI(26);
     int rowGap = DPI(16);  // 统一行间距
     int labelWidth = DPI(70);
@@ -143,9 +147,10 @@ void RepositionLowerControls() {
     int inputWidth = rightWidth - labelWidth - DPI(10);
     
     // 计算host控件区域的总高度
-    // 初始位置：用户名、邮箱、SSH密钥、SSH Hosts标签（4行），然后是host控件
+    // 初始位置：用户名、邮箱、SSH密钥、SSH Hosts标签（4行）+ 提示文本行（额外高度），然后是host控件
     int yBase = DPI(25); // 初始边距
-    int initialCtrlsHeight = 4 * (ctrlH + rowGap); // 用户名、邮箱、SSH密钥、SSH Hosts标签（4行）
+    int hintLineHeight = DPI(20) + DPI(16) + DPI(4); // SSH Hosts标签行 + 提示文本行 + 间距
+    int initialCtrlsHeight = 3 * (ctrlH + rowGap) + hintLineHeight; // 用户名、邮箱、SSH密钥（3行）+ SSH Hosts区域
     int hostCtrlsHeight = (ctrlH + rowGap) * hHostControlCount; // 所有host控件的高度
     int totalCtrlsHeight = initialCtrlsHeight + hostCtrlsHeight;
     int buttonsY = yBase + totalCtrlsHeight;  // 按钮组的Y位置
@@ -166,7 +171,6 @@ void RepositionLowerControls() {
     if (hBtnSwitch) SetWindowPos(hBtnSwitch, NULL, rightX, switchBtnY, rightWidth, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
 
     // 重新定位状态栏
-    RECT rcClient;
     GetClientRect(hMainWnd, &rcClient);
     int statusY = rcClient.bottom - DPI(26) - DPI(25); // 状态栏高度 + 底部边距
     int statusWidth = rcClient.right - DPI(25) * 2 - ctrlH - DPI(5);
@@ -178,22 +182,24 @@ void RepositionLowerControls() {
     if (hListCtrl) SetWindowPos(hListCtrl, NULL, DPI(25), DPI(25), DPI(200), listHeight, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
     
     // 重新定位第一个host控件和新增按钮
+    int browseBtnW = DPI(26);
+    int hostComboW = inputWidth - DPI(30);
     if (hHostControlCount >= 1 && hHostControls[0] != NULL) {
         int firstComboY = yBase + initialCtrlsHeight;
-        // 第一个下拉框宽度与其他下拉框一致
-        SetWindowPos(hHostControls[0], NULL, inputX, firstComboY, inputWidth - DPI(35), ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
-        // 新增按钮在第一个下拉框右侧
-        if (hBtnAddHost) SetWindowPos(hBtnAddHost, NULL, inputX + inputWidth - DPI(30), firstComboY, DPI(26), ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+        // 第一个下拉框宽度与SSH密钥下拉框一致
+        SetWindowPos(hHostControls[0], NULL, inputX, firstComboY, hostComboW, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+        // 新增按钮在第一个下拉框右侧，与SSH密钥的"..."按钮位置一致
+        if (hBtnAddHost) SetWindowPos(hBtnAddHost, NULL, inputX + hostComboW + DPI(4), firstComboY, browseBtnW, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
     }
     
     // 重新定位动态host控件（从第二个控件开始，因为第一个已经在上面定位了）
     for (int i = 1; i < hHostControlCount; i++) {
         int comboY = yBase + initialCtrlsHeight + (ctrlH + rowGap) * i;
         if (hHostControls[i * 2] != NULL) {  // 下拉框
-            SetWindowPos(hHostControls[i * 2], NULL, inputX, comboY, inputWidth - DPI(35), ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+            SetWindowPos(hHostControls[i * 2], NULL, inputX, comboY, hostComboW, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
         }
         if (hHostControls[i * 2 + 1] != NULL) {  // 删除按钮
-            SetWindowPos(hHostControls[i * 2 + 1], NULL, inputX + inputWidth - DPI(30), comboY, DPI(26), ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+            SetWindowPos(hHostControls[i * 2 + 1], NULL, inputX + hostComboW + DPI(4), comboY, browseBtnW, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
         }
     }
 
@@ -246,9 +252,16 @@ void AddHostControl(const wchar_t* initialHost) {
     int rightX = DPI(25) + DPI(200) + DPI(25);  // 左侧列表宽度 + 间距
     int labelWidth = DPI(70);
     int inputX = rightX + labelWidth + DPI(10);
-    int inputWidth = DPI(340) - labelWidth - DPI(10);
+    // 获取实际客户区大小
+    RECT rcClient;
+    GetClientRect(hMainWnd, &rcClient);
+    int clientWidth = rcClient.right;
+    int rightWidth = clientWidth - DPI(25) - rightX;
+    int inputWidth = rightWidth - labelWidth - DPI(10);
     int ctrlH = DPI(26);
     int rowGap = DPI(16);  // 行间距
+    int browseBtnW = DPI(26);
+    int hostComboW = inputWidth - DPI(30);  // 与SSH密钥下拉框宽度一致
 
     // 计算Host控件的Y位置 - 在SSH密钥和现有Host控件之后
     // 从顶部开始计算：用户名、邮箱、SSH密钥（3行），然后是SSH Hosts行
@@ -259,7 +272,7 @@ void AddHostControl(const wchar_t* initialHost) {
 
     // 创建下拉框 - 使用全局主窗口句柄，恢复为标准样式
     HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
-        inputX, hostY, inputWidth - DPI(35), ctrlH, hMainWnd, (HMENU)(INT_PTR)(ID_HOST_COMBO_PREFIX + hHostControlCount), NULL, NULL);
+        inputX, hostY, hostComboW, ctrlH, hMainWnd, (HMENU)(INT_PTR)(ID_HOST_COMBO_PREFIX + hHostControlCount), NULL, NULL);
     SendMessage(hCombo, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
     // 添加常见的Git服务
     SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"github.com");
@@ -272,7 +285,7 @@ void AddHostControl(const wchar_t* initialHost) {
 
     // 创建删除按钮 - 使用当前控件索引作为ID
     HWND hDeleteBtn = CreateWindowW(L"BUTTON", L"–", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 
-        inputX + inputWidth - DPI(30), hostY, DPI(26), ctrlH, hMainWnd, (HMENU)(INT_PTR)(ID_HOST_DELETE_PREFIX + hHostControlCount), NULL, NULL);
+        inputX + hostComboW + DPI(4), hostY, browseBtnW, ctrlH, hMainWnd, (HMENU)(INT_PTR)(ID_HOST_DELETE_PREFIX + hHostControlCount), NULL, NULL);
 
     // 存储控件句柄 - 从第2个控件开始（索引2和3为第2个控件的下拉框和删除按钮）
     hHostControls[hHostControlCount * 2] = hCombo;
@@ -637,7 +650,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         int margin = DPI(25);
         int listWidth = DPI(200);
         int rightX = margin + listWidth + DPI(25);
-        int rightWidth = DPI(340);
+        
+        // 获取实际客户区大小，使输入框右边界与夜间模式按钮右边界对齐
+        // 夜间模式按钮右边界 = rcClient.right - margin
+        // 输入框右边界也应该 = rcClient.right - margin
+        RECT rcInit;
+        GetClientRect(hwnd, &rcInit);
+        int clientWidth = rcInit.right;  // 实际客户区宽度
+        int rightWidth = clientWidth - margin - rightX;  // 输入框右边界 = rightX + rightWidth = clientWidth - margin
         
         // 统一高度：所有控件（输入框、按钮、下拉框）
         int ctrlH = DPI(26);
@@ -674,25 +694,29 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         y += ctrlH + rowGap;
 
-        // Row 4: SSH ComboBox + 浏览按钮
-        int browseBtnW = DPI(40);
-        int comboW = rightWidth - browseBtnW - DPI(5);
+        // Row 4: SSH ComboBox + 浏览按钮 - 与其他输入框右边界对齐
+        int browseBtnW = DPI(26);
+        int comboW = inputWidth - DPI(30);
         hSSH = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
-            rightX, y, comboW, DPI(200), hwnd, (HMENU)ID_COMBO_SSH, NULL, NULL);
+            inputX, y, comboW, DPI(200), hwnd, (HMENU)ID_COMBO_SSH, NULL, NULL);
         SendMessage(hSSH, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
         CreateWindowW(L"BUTTON", L"...", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
-            rightX + comboW + DPI(5), y, browseBtnW, ctrlH, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
+            inputX + comboW + DPI(4), y, browseBtnW, ctrlH, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
 
         y += ctrlH + rowGap;
 
-        // Row 5: SSH Hosts 标签 + 提示 + 第一个host控件 + 新增按钮
+        // Row 5: SSH Hosts 标签（提示文本换行到下方独立显示）
         CreateWindowW(L"STATIC", L"SSH Hosts:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
-        // 端口号提示（支持 host:port 格式，默认端口22）- 放在标签右侧
-        CreateWindowW(L"STATIC", L"(支持 host:port)", WS_CHILD | WS_VISIBLE, rightX + labelWidth, y + DPI(4), DPI(110), DPI(20), hwnd, NULL, NULL, NULL);
         
-        // 创建第一个host控件（下拉框）
+        // 端口号提示（支持 host:port 格式，默认端口22）- 换行到下方独立显示
+        y += DPI(20);  // 为提示文本留出行高
+        CreateWindowW(L"STATIC", L"(支持 host:port)", WS_CHILD | WS_VISIBLE, rightX, y, DPI(110), DPI(16), hwnd, NULL, NULL, NULL);
+        y += DPI(16) + DPI(4);  // 提示文本高度 + 间距
+        
+        // 创建第一个host控件（下拉框）- 与SSH密钥下拉框宽度一致
+        int hostComboW = inputWidth - DPI(30);
         HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
-            inputX, y, inputWidth - DPI(35), ctrlH, hwnd, (HMENU)(INT_PTR)(ID_HOST_COMBO_PREFIX + 0), NULL, NULL);
+            inputX, y, hostComboW, ctrlH, hwnd, (HMENU)(INT_PTR)(ID_HOST_COMBO_PREFIX + 0), NULL, NULL);
         SendMessage(hCombo, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
         // 添加常见的Git服务
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"github.com");
@@ -704,9 +728,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hHostControls[1] = NULL; // 第一个控件没有删除按钮，但预留位置
         hHostControlCount = 1; // 初始有一个控件，但不显示删除按钮
 
-        // "新增"按钮 (放在第一个下拉框的右侧)
+        // "新增"按钮 (放在第一个下拉框的右侧，与SSH密钥的"..."按钮位置一致)
         hBtnAddHost = CreateWindowW(L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 
-            inputX + inputWidth - DPI(30), y, DPI(26), ctrlH, hwnd, (HMENU)ID_BTN_ADD_HOST, NULL, NULL);
+            inputX + hostComboW + DPI(4), y, browseBtnW, ctrlH, hwnd, (HMENU)ID_BTN_ADD_HOST, NULL, NULL);
 
         y += ctrlH + rowGap;
 
