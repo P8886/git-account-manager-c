@@ -9,6 +9,7 @@
 #define NAME_LEN 256
 #define EMAIL_LEN 256
 #define PATH_LEN 1024
+#define HOST_LEN 256
 
 // 颜色定义
 #define COLOR_DARK_BG RGB(32, 32, 32)

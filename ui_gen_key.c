@@ -48,7 +48,7 @@ LRESULT CALLBACK GenKeyDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         char defaultName[64];
         snprintf(defaultName, sizeof(defaultName), "id_ed25519_%lld", (long long)time(NULL));
         
-        HWND hName = CreateWindowW(L"EDIT", U8ToW(defaultName), WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 
+        CreateWindowW(L"EDIT", U8ToW(defaultName), WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 
             inputX, y, inputW, h, hwnd, (HMENU)ID_GEN_EDIT_NAME, NULL, NULL);
 
         y += h + DPI(15);
@@ -77,10 +77,10 @@ LRESULT CALLBACK GenKeyDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         int totalBtnW = btnW * 2 + btnGap;
         int btnStart = (x + w + DPI(20) - totalBtnW) / 2; // 居中按钮
 
-        HWND hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
+        CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
             btnStart, y, btnW, h, hwnd, (HMENU)ID_GEN_BTN_CANCEL, NULL, NULL);
 
-        HWND hBtnOk = CreateWindowW(L"BUTTON", L"生成", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_DEFPUSHBUTTON, 
+        CreateWindowW(L"BUTTON", L"生成", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_DEFPUSHBUTTON, 
             btnStart + btnW + btnGap, y, btnW, h, hwnd, (HMENU)ID_GEN_BTN_OK, NULL, NULL);
 
         // 应用主题和字体

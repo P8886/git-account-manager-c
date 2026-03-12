@@ -16,7 +16,8 @@ typedef struct {
     char name[NAME_LEN];
     char email[EMAIL_LEN];
     char ssh_key_path[PATH_LEN];
-    char git_host[HOST_LEN];  // Git服务Host (github.com, gitlab.com等)
+    char host_list[10][HOST_LEN];  // Git服务Host列表 (github.com, gitlab.com等)
+    int host_count;                // Host数量
 } Account;
 
 // 配置结构体
@@ -59,6 +60,22 @@ int GenerateSSHKeyAndUpdateConfig(const char* name, const char* email, const cha
 // email: 关联邮箱 (用于注释)
 // 返回值: 0 失败, 1 成功
 int AddExistingKeyToSSHConfig(const char* keyPath, const char* email, const char* host);
+
+// 清理SSH配置文件中与指定密钥相关的所有Host配置（保留需要的hosts）
+// keyPath: SSH 密钥的完整路径
+// email: 关联邮箱 
+// keepHosts: 需要保留的hosts数组
+// keepHostCount: 需要保留的host数量
+// 返回值: 0 失败, 1 成功
+int CleanupSSHConfigForKey(const char* keyPath, const char* email, const char* const* keepHosts, int keepHostCount);
+
+// 为现有的 SSH 密钥创建或更新 SSH config，支持多个hosts
+// keyPath: SSH 密钥的完整路径 (如 C:\Users\Admin\.ssh\id_rsa)
+// email: 关联邮箱 (用于注释)
+// hosts: Git服务Host数组
+// hostCount: Host数量
+// 返回值: 0 失败, 1 成功
+int AddMultipleHostsToSSHConfig(const char* keyPath, const char* email, const char hosts[][HOST_LEN], int hostCount);
 
 // 从 SSH config 中获取对应密钥的 Host
 // keyPath: SSH 密钥的完整路径

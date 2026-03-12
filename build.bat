@@ -9,7 +9,41 @@ gcc --version >nul 2>&1
 if %errorlevel% equ 0 (
     echo Compiling with GCC...
     
-    :: 编译资源文件
+    :: Compile main.c to avoid memory issues
+    echo Compiling main.c...
+    gcc -c main.c -o main.o -Os -Wall
+    if %errorlevel% neq 0 (
+        echo Failed to compile main.c
+        pause
+        exit /b 1
+    )
+    
+    echo Compiling logic.c...
+    gcc -c logic.c -o logic.o -Os -Wall
+    if %errorlevel% neq 0 (
+        echo Failed to compile logic.c
+        pause
+        exit /b 1
+    )
+    
+    echo Compiling ui_draw.c...
+    gcc -c ui_draw.c -o ui_draw.o -Os -Wall
+    if %errorlevel% neq 0 (
+        echo Failed to compile ui_draw.c
+        pause
+        exit /b 1
+    )
+    
+    echo Compiling ui_gen_key.c...
+    gcc -c ui_gen_key.c -o ui_gen_key.o -Os -Wall
+    if %errorlevel% neq 0 (
+        echo Failed to compile ui_gen_key.c
+        pause
+        exit /b 1
+    )
+    
+    :: Compile resource file
+    echo Compiling resources...
     windres resource.rc -o resource.o
     if %errorlevel% neq 0 (
         echo Failed to compile resources.
@@ -17,21 +51,26 @@ if %errorlevel% equ 0 (
         exit /b 1
     )
 
-    :: 编译主程序
-    gcc main.c logic.c ui_draw.c ui_gen_key.c resource.o -o GitAccountManager.exe -mwindows -Os -s -ffunction-sections -fdata-sections -fno-ident -fno-asynchronous-unwind-tables -Wl,--gc-sections -luser32 -lkernel32 -lgdi32 -lcomdlg32 -lshell32 -ldwmapi
+    :: Link executable
+    echo Linking executable...
+    gcc main.o logic.o ui_draw.o ui_gen_key.o resource.o -o GitAccountManager.exe -mwindows -Os -s -Wl,--gc-sections -luser32 -lgdi32 -lcomdlg32 -lshell32 -ldwmapi
     
-    :: 清理资源对象文件
+    :: Clean up temporary object files
+    if exist main.o del main.o
+    if exist logic.o del logic.o
+    if exist ui_draw.o del ui_draw.o
+    if exist ui_gen_key.o del ui_gen_key.o
     if exist resource.o del resource.o
     
     goto :success
 )
 
-:: 检查 MSVC
+:: Check for MSVC
 cl >nul 2>&1
 if %errorlevel% equ 0 (
     echo Compiling with MSVC...
     
-    :: 编译资源文件
+    :: Compile resources
     rc /fo resource.res resource.rc
     if %errorlevel% neq 0 (
         echo Failed to compile resources.
@@ -39,10 +78,10 @@ if %errorlevel% equ 0 (
         exit /b 1
     )
 
-    :: 编译主程序
+    :: Compile main program
     cl main.c logic.c ui_draw.c ui_gen_key.c resource.res /Fe:GitAccountManager.exe /O1 /MD /link /SUBSYSTEM:WINDOWS user32.lib kernel32.lib gdi32.lib comdlg32.lib shell32.lib dwmapi.lib /OPT:REF /OPT:ICF
     
-    :: 清理资源 res 文件
+    :: Clean up resource res files
     if exist resource.res del resource.res
     if exist main.obj del main.obj
     if exist logic.obj del logic.obj
@@ -59,8 +98,9 @@ exit /b 1
 :success
 if exist GitAccountManager.exe (
     echo Build successful!
-    echo Running...
-    start GitAccountManager.exe
+    echo GitAccountManager.exe has been created successfully.
+    echo.
+    pause
 ) else (
     echo Build failed.
     pause

@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <commdlg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <dwmapi.h> // 引入 DWM API
 #include <shlobj.h> // 用于 SHGetFolderPath
@@ -32,9 +33,16 @@
 #define ID_LBL_DETAILS 113
 #define ID_BTN_GENERATE 114
 #define ID_COMBO_HOST 115
+#define ID_HOST_COMBO_PREFIX 200  // 动态创建的host下拉框ID前缀
+#define ID_HOST_DELETE_PREFIX 300 // 动态创建的host删除按钮ID前缀
+#define ID_BTN_ADD_HOST 400       // 新增host按钮
 
 // 全局变量
-HWND hList, hName, hEmail, hSSH, hHost, hLblHost, hStatus, hBtnSave, hBtnCancel, hLblDetails, hBtnGenerate;
+HWND hMainWnd;  // 主窗口句柄
+HWND hList, hName, hEmail, hSSH, hHost, hLblHost, hStatus, hBtnSave, hBtnCancel, hBtnDelete, hBtnSwitch, hLblDetails, hBtnGenerate;
+HWND hHostControls[20];  // 存储host控件的句柄数组（下拉框和删除按钮配对，最多10对 = 20个句柄）
+int hHostControlCount = 1;  // 当前host控件的数量，默认为1（初始控件）
+HWND hBtnAddHost;  // 新增host按钮
 Config config;
 char currentEditID[ID_LEN] = "";
 BOOL isDarkMode = FALSE;
@@ -42,6 +50,14 @@ BOOL g_bIgnoreEditChange = FALSE;
 HBRUSH hBrushDark, hBrushLight, hBrushControlDark;
 HFONT hGlobalFont = NULL; // 全局字体句柄
 float g_dpiScale = 1.0f;  // DPI 缩放比例 (2K屏幕通常为 1.25 或 1.5)
+
+// 函数声明
+void RepositionLowerControls();
+void AddHostControl(const wchar_t* initialHost);
+void RemoveHostControl(int index);
+void ClearHostControls();
+void UpdateAccountHosts(Account* acc);
+void PopulateHostControls(Account* acc);
 
 // DPI 缩放辅助函数
 int DPI(int value) {
@@ -88,8 +104,235 @@ char* WToU8(const wchar_t* wstr) {
     return buffer;
 }
 
-void UpdateHostVisibility() {
-    // 始终显示，不再隐藏
+// 删除指定索引的host控件（不能删除第一个初始控件）
+void RemoveHostControl(int index) {
+    if (index < 1 || index >= hHostControlCount) return; // 不能删除第一个控件（index 0），只允许删除后续添加的控件
+
+    // 销毁控件
+    if (hHostControls[index * 2] != NULL) {      // 下拉框
+        DestroyWindow(hHostControls[index * 2]);
+    }
+    if (hHostControls[index * 2 + 1] != NULL) {  // 删除按钮
+        DestroyWindow(hHostControls[index * 2 + 1]);
+    }
+
+    // 将后面的控件前移，覆盖要删除的控件
+    for (int i = index; i < hHostControlCount - 1; i++) {
+        hHostControls[i * 2] = hHostControls[(i + 1) * 2];
+        hHostControls[i * 2 + 1] = hHostControls[(i + 1) * 2 + 1];
+    }
+
+    // 清空最后的控件位置
+    hHostControls[(hHostControlCount - 1) * 2] = NULL;
+    hHostControls[(hHostControlCount - 1) * 2 + 1] = NULL;
+    hHostControlCount--;
+
+    // 重新定位下方的控件
+    RepositionLowerControls();
+}
+
+// 重新定位下方的按钮控件以适应新增的host控件
+void RepositionLowerControls() {
+    int rightX = DPI(25) + DPI(200) + DPI(25);  // 左侧列表宽度 + 间距
+    int rightWidth = DPI(340);
+    int ctrlH = DPI(26);
+    int rowGap = DPI(8);
+    int labelWidth = DPI(70);
+    int inputX = rightX + labelWidth + DPI(10);
+    int inputWidth = rightWidth - labelWidth - DPI(10);
+    
+    // 计算host控件区域的总高度
+    // 初始位置：用户名、邮箱、SSH标签 + SSH组合框 + SSH Hosts标签行 + 第一个host控件行（初始的）
+    int yBase = DPI(25); // 初始边距
+    int initialCtrlsHeight = (3 * (ctrlH + DPI(16))) + (ctrlH + DPI(8)) + (ctrlH + DPI(4)); // 用户名、邮箱、SSH标签 + SSH组合框 + SSH Hosts标签行
+    int hostCtrlsHeight = (ctrlH + rowGap) * hHostControlCount; // 所有host控件（包括初始的1个）的高度
+    int totalCtrlsHeight = initialCtrlsHeight + hostCtrlsHeight;
+    int buttonsY = yBase + totalCtrlsHeight;  // 按钮组的Y位置
+
+    // 重新定位按钮组（直接使用已存储的全局句柄）
+    HWND hStatus = GetDlgItem(hMainWnd, ID_STATUS);
+    HWND hBtnTheme = GetDlgItem(hMainWnd, ID_BTN_THEME);
+    HWND hListCtrl = GetDlgItem(hMainWnd, ID_LIST);
+    
+    int btnWidth = DPI(100);
+    // 使用SWP_NOCOPYBITS避免旧的绘制内容残留
+    if (hBtnSave) SetWindowPos(hBtnSave, NULL, rightX, buttonsY, btnWidth, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+    if (hBtnCancel) SetWindowPos(hBtnCancel, NULL, rightX + btnWidth + DPI(10), buttonsY, DPI(70), ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+    if (hBtnDelete) SetWindowPos(hBtnDelete, NULL, rightX + rightWidth - DPI(80), buttonsY, DPI(80), ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+
+    // 重新定位"切换到选中账户"按钮
+    int switchBtnY = buttonsY + ctrlH + rowGap + DPI(4);
+    if (hBtnSwitch) SetWindowPos(hBtnSwitch, NULL, rightX, switchBtnY, rightWidth, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+
+    // 重新定位状态栏
+    RECT rcClient;
+    GetClientRect(hMainWnd, &rcClient);
+    int statusY = rcClient.bottom - DPI(26) - DPI(25); // 状态栏高度 + 底部边距
+    int statusWidth = rcClient.right - DPI(25) * 2 - ctrlH - DPI(5);
+    if (hStatus) SetWindowPos(hStatus, NULL, DPI(25), statusY, statusWidth, DPI(26), SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+    if (hBtnTheme) SetWindowPos(hBtnTheme, NULL, DPI(25) + statusWidth + DPI(5), statusY, ctrlH, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+
+    // 重新定位列表高度以适应新的布局
+    int listHeight = statusY - DPI(25) - DPI(15); // 从顶部边距到状态栏上方
+    if (hListCtrl) SetWindowPos(hListCtrl, NULL, DPI(25), DPI(25), DPI(200), listHeight, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+    
+    // 重新定位第一个host控件和新增按钮
+    if (hHostControlCount >= 1 && hHostControls[0] != NULL) {
+        int firstComboY = yBase + initialCtrlsHeight;
+        // 第一个下拉框宽度与其他下拉框一致
+        SetWindowPos(hHostControls[0], NULL, inputX, firstComboY, inputWidth - DPI(35), ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+        // 新增按钮在第一个下拉框右侧
+        if (hBtnAddHost) SetWindowPos(hBtnAddHost, NULL, inputX + inputWidth - DPI(30), firstComboY, DPI(26), ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+    }
+    
+    // 重新定位动态host控件（从第二个控件开始，因为第一个已经在上面定位了）
+    for (int i = 1; i < hHostControlCount; i++) {
+        int comboY = yBase + initialCtrlsHeight + (ctrlH + rowGap) * i;
+        if (hHostControls[i * 2] != NULL) {  // 下拉框
+            SetWindowPos(hHostControls[i * 2], NULL, inputX, comboY, inputWidth - DPI(35), ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+        }
+        if (hHostControls[i * 2 + 1] != NULL) {  // 删除按钮
+            SetWindowPos(hHostControls[i * 2 + 1], NULL, inputX + inputWidth - DPI(30), comboY, DPI(26), ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+        }
+    }
+
+    // 强制完整重绘窗口，避免残留渲染问题
+    SendMessage(hMainWnd, WM_SETREDRAW, FALSE, 0);  // 暂停重绘
+    SendMessage(hMainWnd, WM_SETREDRAW, TRUE, 0);   // 恢复重绘
+    RedrawWindow(hMainWnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    UpdateWindow(hMainWnd);  // 强制立即重绘
+    
+    // 动态调整窗口高度
+    // 计算所需的最小高度：按钮Y位置 + 两行按钮高度 + 状态栏高度 + 底部边距
+    int requiredHeight = switchBtnY + ctrlH + DPI(8) + DPI(26) + DPI(25) + DPI(15);
+    // 基础高度（无额外host时）
+    int baseHeight = DPI(480);
+    // 每增加一个host，高度增加一行
+    int extraHosts = (hHostControlCount > 1) ? (hHostControlCount - 1) : 0;
+    int newHeight = baseHeight + extraHosts * (ctrlH + rowGap);
+    
+    // 确保窗口高度足够显示所有内容
+    if (requiredHeight > newHeight) {
+        newHeight = requiredHeight;
+    }
+    
+    // 获取当前窗口位置和大小
+    RECT rcWnd;
+    GetWindowRect(hMainWnd, &rcWnd);
+    int currentHeight = rcWnd.bottom - rcWnd.top;
+    
+    // 如果高度变化超过一行，调整窗口大小
+    if (abs(newHeight - currentHeight) > DPI(20)) {
+        SetWindowPos(hMainWnd, NULL, 0, 0, rcWnd.right - rcWnd.left, newHeight, 
+                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOCOPYBITS);
+        // 重新定位状态栏
+        GetClientRect(hMainWnd, &rcClient);
+        statusY = rcClient.bottom - DPI(26) - DPI(25);
+        statusWidth = rcClient.right - DPI(25) * 2 - ctrlH - DPI(5);
+        if (hStatus) SetWindowPos(hStatus, NULL, DPI(25), statusY, statusWidth, DPI(26), SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+        if (hBtnTheme) SetWindowPos(hBtnTheme, NULL, DPI(25) + statusWidth + DPI(5), statusY, ctrlH, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+        // 重新定位列表
+        listHeight = statusY - DPI(25) - DPI(15);
+        if (hListCtrl) SetWindowPos(hListCtrl, NULL, DPI(25), DPI(25), DPI(200), listHeight, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+    }
+}
+
+// 添加一个host控件（下拉框+删除按钮）
+void AddHostControl(const wchar_t* initialHost) {
+    if (hHostControlCount >= 10) return;  // 限制最大数量，包括初始的1个
+    
+    // 使用全局变量来获取正确的坐标
+    int rightX = DPI(25) + DPI(200) + DPI(25);  // 左侧列表宽度 + 间距
+    int labelWidth = DPI(70);
+    int inputX = rightX + labelWidth + DPI(10);
+    int inputWidth = DPI(340) - labelWidth - DPI(10);
+    int ctrlH = DPI(26);
+    int rowGap = DPI(8);  // 减小行间距以适应更多控件
+
+    // 计算Host控件的Y位置 - 在SSH密钥和现有Host控件之后
+    // 从顶部开始计算：用户名、邮箱、SSH标签、SSH组合框，然后是每个host控件
+    int yBase = DPI(25); // 初始边距
+    // 从第二个控件开始计算位置（因为第一个控件已经在初始化时创建）
+    int hostY = yBase + (3 * (ctrlH + DPI(16))) + (ctrlH + DPI(8)) + (ctrlH + DPI(4)) + (ctrlH + rowGap) * (hHostControlCount - 1);  // 用户名、邮箱、SSH标签行 + SSH组合框行 + SSH Hosts标签行 + 已有host控件行数（减去初始的1个）
+
+    // 创建下拉框 - 使用全局主窗口句柄，恢复为标准样式
+    HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
+        inputX, hostY, inputWidth - DPI(35), ctrlH, hMainWnd, (HMENU)(INT_PTR)(ID_HOST_COMBO_PREFIX + hHostControlCount), NULL, NULL);
+    SendMessage(hCombo, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
+    // 添加常见的Git服务
+    SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"github.com");
+    SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"gitlab.com");
+    SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"gitee.com");
+    SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"bitbucket.org");
+    if (initialHost && wcslen(initialHost) > 0) {
+        SetWindowTextW(hCombo, initialHost);
+    }
+
+    // 创建删除按钮 - 使用当前控件索引作为ID
+    HWND hDeleteBtn = CreateWindowW(L"BUTTON", L"–", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
+        inputX + inputWidth - DPI(30), hostY, DPI(26), ctrlH, hMainWnd, (HMENU)(INT_PTR)(ID_HOST_DELETE_PREFIX + hHostControlCount), NULL, NULL);
+
+    // 存储控件句柄 - 从第2个控件开始（索引2和3为第2个控件的下拉框和删除按钮）
+    hHostControls[hHostControlCount * 2] = hCombo;
+    hHostControls[hHostControlCount * 2 + 1] = hDeleteBtn;
+    hHostControlCount++;
+
+    // 重新定位下方的控件
+    RepositionLowerControls();
+}
+
+// 清空所有host控件，保留第一个初始控件
+void ClearHostControls() {
+    // 销毁从第二个控件开始的所有控件
+    for (int i = hHostControlCount - 1; i >= 1; i--) {  // 从最后一个开始删除，跳过第一个
+        if (hHostControls[i * 2] != NULL) {      // 下拉框
+            DestroyWindow(hHostControls[i * 2]);
+        }
+        if (hHostControls[i * 2 + 1] != NULL) {  // 删除按钮
+            DestroyWindow(hHostControls[i * 2 + 1]);
+        }
+        hHostControls[i * 2] = NULL;
+        hHostControls[i * 2 + 1] = NULL;
+    }
+    hHostControlCount = 1; // 重置为只有第一个控件
+
+    // 清空第一个控件的内容
+    if (hHostControls[0] != NULL) {
+        SetWindowTextW(hHostControls[0], L"");
+    }
+
+    // 重新定位下方的控件
+    RepositionLowerControls();
+}
+
+// 从控件中获取hosts并更新到账户对象
+void UpdateAccountHosts(Account* acc) {
+    acc->host_count = 0;
+    for (int i = 0; i < hHostControlCount && i < 10; i++) {
+        if (hHostControls[i * 2] != NULL) {  // 下拉框存在
+            wchar_t wHost[HOST_LEN];
+            GetWindowTextW(hHostControls[i * 2], wHost, HOST_LEN);
+            if (wcslen(wHost) > 0) {
+                strcpy(acc->host_list[acc->host_count], WToU8(wHost));
+                acc->host_count++;
+            }
+        }
+    }
+}
+
+// 用账户中的hosts填充控件
+void PopulateHostControls(Account* acc) {
+    ClearHostControls();  // 清空现有控件，保留第一个初始控件
+
+    // 设置第一个控件的内容
+    if (acc->host_count > 0 && hHostControls[0] != NULL) {
+        SetWindowTextW(hHostControls[0], U8ToW(acc->host_list[0]));
+    }
+
+    // 添加其余的hosts（从第二个开始）
+    for (int i = 1; i < acc->host_count && i < 10; i++) {
+        AddHostControl(U8ToW(acc->host_list[i])); // 这将创建带删除按钮的控件
+    }
 }
 
 void OnSSHKeyChanged(const wchar_t* wSSHPath) {
@@ -155,13 +398,11 @@ void ClearForm() {
     SetWindowTextW(hName, L"");
     SetWindowTextW(hEmail, L"");
     SetWindowTextW(hSSH, L"");
-    SendMessageW(hHost, CB_SETCURSEL, -1, 0);
-    SetWindowTextW(hHost, L"");
+    ClearHostControls();  // 清空hosts控件
     currentEditID[0] = 0;
     SetWindowTextW(hBtnSave, L"添加账户");
     ShowWindow(hBtnCancel, SW_HIDE);
     SendMessageW(hList, LB_SETCURSEL, -1, 0);
-    UpdateHostVisibility();
 }
 
 // 更新状态栏
@@ -376,6 +617,11 @@ void ApplyTheme(HWND hwnd) {
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    // 设置全局主窗口句柄
+    if (msg == WM_CREATE) {
+        hMainWnd = hwnd;
+    }
+    
     switch (msg) {
     case WM_CREATE: {
         // 根据 DPI 缩放创建字体 (基础 18px)
@@ -437,33 +683,66 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         y += ctrlH + rowGap + DPI(4);
 
-        // Row 5: SSH Host
-        hLblHost = CreateWindowW(L"STATIC", L"SSH Host:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
-        hHost = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
-            inputX, y, inputWidth, DPI(180), hwnd, (HMENU)ID_COMBO_HOST, NULL, NULL);
-        SendMessage(hHost, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
-        
-        // 添加常见的Git服务
-        SendMessageW(hHost, CB_ADDSTRING, 0, (LPARAM)L"github.com");
-        SendMessageW(hHost, CB_ADDSTRING, 0, (LPARAM)L"gitlab.com");
-        SendMessageW(hHost, CB_ADDSTRING, 0, (LPARAM)L"gitee.com");
-        SendMessageW(hHost, CB_ADDSTRING, 0, (LPARAM)L"bitbucket.org");
+                                                        // Row 5: SSH Hosts 标签 + 第一个host控件 + 新增按钮
 
-        y += ctrlH + rowGap;
+                                                        hLblHost = CreateWindowW(L"STATIC", L"SSH Hosts:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
 
-        // Row 6: 添加/取消/删除 按钮组
-        int btnWidth = DPI(100);
-        hBtnSave = CreateWindowW(L"BUTTON", L"添加账户", WS_CHILD | WS_VISIBLE | WS_TABSTOP, rightX, y, btnWidth, ctrlH, hwnd, (HMENU)ID_BTN_SAVE, NULL, NULL);
-        hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP, rightX + btnWidth + DPI(10), y, DPI(70), ctrlH, hwnd, (HMENU)ID_BTN_CANCEL, NULL, NULL);
-        ShowWindow(hBtnCancel, SW_HIDE);
-        CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE | WS_TABSTOP, rightX + rightWidth - DPI(80), y, DPI(80), ctrlH, hwnd, (HMENU)ID_BTN_DELETE, NULL, NULL);
+                                                        
 
-        y += ctrlH + rowGap + DPI(4);
+                                                        // 创建第一个host控件（下拉框）
+                                                        // 使用和动态添加控件相同的宽度 inputWidth - DPI(35)
+                                                        HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
+                                                            inputX, y, inputWidth - DPI(35), ctrlH, hwnd, (HMENU)(INT_PTR)(ID_HOST_COMBO_PREFIX + 0), NULL, NULL);
+                                                        SendMessage(hCombo, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
+                                                        // 添加常见的Git服务
+                                                        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"github.com");
+                                                        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"gitlab.com");
+                                                        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"gitee.com");
+                                                        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"bitbucket.org");
+                                                        // 存储第一个控件句柄
+                                                        hHostControls[0] = hCombo;
+                                                        hHostControls[1] = NULL; // 第一个控件没有删除按钮，但预留位置
+                                                        hHostControlCount = 1; // 初始有一个控件，但不显示删除按钮
 
-        // Row 7: 切换到选中账户
-        CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE | WS_TABSTOP, rightX, y, rightWidth, ctrlH, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
+                                                        // "新增"按钮 (放在第一个下拉框的右侧，与删除按钮位置一致)
+                                                        hBtnAddHost = CreateWindowW(L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
+                                                            inputX + inputWidth - DPI(30), y, DPI(26), ctrlH, hwnd, (HMENU)ID_BTN_ADD_HOST, NULL, NULL);
 
-        // 状态栏和列表高度：根据窗口客户区大小计算，状态栏贴底
+                                                
+
+                                                        y += ctrlH + DPI(4); // 小间距
+
+                                                
+
+                                                        // Row 6: 预留区域给动态添加的Host控件（从第二行开始，从y位置开始往下排布）
+
+                                                        // 设置初始的后续控件位置（但不创建控件，只计算空间）
+
+                                                
+
+                                                        // Row 7: 添加/取消/删除 按钮组 - 保持在固定位置，通过RepositionLowerControls动态调整
+
+                                                        int btnWidth = DPI(100);
+
+                                                        hBtnSave = CreateWindowW(L"BUTTON", L"添加账户", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, btnWidth, ctrlH, hwnd, (HMENU)ID_BTN_SAVE, NULL, NULL);
+
+                                                        hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, DPI(70), ctrlH, hwnd, (HMENU)ID_BTN_CANCEL, NULL, NULL);
+
+                                                        ShowWindow(hBtnCancel, SW_HIDE);
+
+                                                        hBtnDelete = CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, DPI(80), ctrlH, hwnd, (HMENU)ID_BTN_DELETE, NULL, NULL);
+
+                                                
+
+                                                        // Row 8: 切换到选中账户 - 也在固定位置，通过RepositionLowerControls动态调整
+
+                                                        hBtnSwitch = CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, rightWidth, ctrlH, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
+
+                                                        
+
+                                                        // 初始定位所有控件
+
+                                                        RepositionLowerControls();        // 状态栏和列表高度：根据窗口客户区大小计算，状态栏贴底
         RECT rcClient;
         GetClientRect(hwnd, &rcClient);
         int clientH = rcClient.bottom;
@@ -473,7 +752,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             margin, statusY, statusWidth, ctrlH, hwnd, (HMENU)ID_STATUS, NULL, NULL);
 
         // 夜间模式切换按钮
-        HWND hBtnTheme = CreateWindowW(L"BUTTON", L"🌙", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
+        CreateWindowW(L"BUTTON", L"🌙", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
             margin + statusWidth + DPI(5), statusY, ctrlH, ctrlH, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
 
         // 列表高度：从顶部边距到状态栏上方
@@ -499,7 +778,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         RefreshList();
         UpdateStatus();
         LoadSSHKeysToCombo();
-        UpdateHostVisibility();
         break;
     }
 
@@ -569,35 +847,73 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 
                 char foundHost[256] = "";
                 if (GetHostFromSSHConfig(acc->ssh_key_path, foundHost, sizeof(foundHost)) && strlen(foundHost) > 0) {
-                    SetWindowTextW(hHost, U8ToW(foundHost));
+                    // 这里我们暂时不设置hHost，因为现在使用动态控件来处理hosts
                 } else {
-                    SetWindowTextW(hHost, U8ToW(acc->git_host));
+                    // 兼容旧数据
                 }
 
                 strcpy(currentEditID, acc->id);
                 SetWindowTextW(hBtnSave, L"更新账户");
                 ShowWindow(hBtnCancel, SW_SHOW);
-                UpdateHostVisibility();
+                PopulateHostControls(acc);  // 填充hosts控件
             }
         }
-        else if (id == ID_COMBO_HOST && HIWORD(wParam) == CBN_SELCHANGE) {
-            // Git服务Host选择变化时，获取选中的项目内容
-            int idx = SendMessageW(hHost, CB_GETCURSEL, 0, 0);
-            if (idx != CB_ERR) {
-                wchar_t buffer[HOST_LEN];
-                SendMessageW(hHost, CB_GETLBTEXT, idx, (LPARAM)buffer);
-                SetWindowTextW(hHost, buffer);
+        else if (id >= ID_HOST_DELETE_PREFIX && id < ID_HOST_DELETE_PREFIX + 10) {
+            // 修复：需要找到正确的控件索引，而不是直接使用ID减去前缀
+            int index = -1;
+            for (int i = 1; i < hHostControlCount; i++) {  // 从1开始，因为0是初始控件
+                if (hHostControls[i * 2 + 1] != NULL && GetDlgCtrlID(hHostControls[i * 2 + 1]) == id) {
+                    index = i;
+                    break;
+                }
+            }
+            if (index != -1) {
+                // 先获取当前账户信息和SSH路径，以便更新SSH配置
+                char currentSSHPath[PATH_LEN] = "";
+                if (strlen(currentEditID) > 0) {
+                    // 获取当前SSH路径
+                    wchar_t wSSH[PATH_LEN];
+                    GetWindowTextW(hSSH, wSSH, PATH_LEN);
+                    strcpy(currentSSHPath, WToU8(wSSH));
+                }
+                
+                // 执行删除控件操作
+                RemoveHostControl(index);
+                
+                // 如果当前正在编辑账户，需要更新SSH配置
+                if (strlen(currentEditID) > 0 && strlen(currentSSHPath) > 0) {
+                    // 更新账户的hosts列表
+                    Account* acc = NULL;
+                    for (int i = 0; i < config.account_count; i++) {
+                        if (strcmp(config.accounts[i].id, currentEditID) == 0) {
+                            acc = &config.accounts[i];
+                            break;
+                        }
+                    }
+                    
+                    if (acc != NULL) {
+                        // 更新hosts列表
+                        UpdateAccountHosts(acc);
+                        
+                        // 创建一个新hosts列表
+                        const char* newHosts[10];
+                        for (int j = 0; j < acc->host_count; j++) {
+                            newHosts[j] = acc->host_list[j];
+                        }
+                        
+                        // 清理与该密钥相关的旧配置，但保留其他仍在使用中的host配置
+                        CleanupSSHConfigForKey(currentSSHPath, acc->email, newHosts, acc->host_count);
+                        
+                        // 重新添加当前控件中存在的hosts配置
+                        if (acc->host_count > 0) {
+                            AddMultipleHostsToSSHConfig(currentSSHPath, acc->email, acc->host_list, acc->host_count);
+                        }
+                    }
+                }
             }
         }
-        else if (id == ID_COMBO_SSH && HIWORD(wParam) == CBN_SELCHANGE) {
-            // ComboBox 选择变化时，获取选中的项目内容
-            int idx = SendMessageW(hSSH, CB_GETCURSEL, 0, 0);
-            if (idx != CB_ERR) {
-                wchar_t buffer[PATH_LEN];
-                SendMessageW(hSSH, CB_GETLBTEXT, idx, (LPARAM)buffer);
-                SetWindowTextW(hSSH, buffer);
-                OnSSHKeyChanged(buffer);
-            }
+        else if (id == ID_BTN_ADD_HOST) {
+            AddHostControl(L"");  // 添加一个空的host控件
         }
         else if (id == ID_COMBO_SSH && HIWORD(wParam) == CBN_EDITCHANGE) {
             if (g_bIgnoreEditChange) break;
@@ -639,13 +955,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                  int accIdx = SendMessageW(hList, LB_GETITEMDATA, idx, 0);
                  if (accIdx >= 0 && accIdx < config.account_count) {
                      strcpy(email, config.accounts[accIdx].email);
-                     strcpy(host, config.accounts[accIdx].git_host);
+                     // 使用第一个host或默认值
+                     if (config.accounts[accIdx].host_count > 0) {
+                         strcpy(host, config.accounts[accIdx].host_list[0]);
+                     } else {
+                         strcpy(host, "github.com"); // 默认值
+                     }
                  }
              } else {
-                 wchar_t wHost[HOST_LEN];
-                 GetWindowTextW(hHost, wHost, HOST_LEN);
-                 if (wcslen(wHost) > 0) {
-                     strcpy(host, WToU8(wHost));
+                 // 如果没有选中账户，尝试从第一个host控件获取值
+                 if (hHostControlCount > 0 && hHostControls[0] != NULL) {
+                     wchar_t wHost[HOST_LEN];
+                     GetWindowTextW(hHostControls[0], wHost, HOST_LEN);
+                     if (wcslen(wHost) > 0) {
+                         strcpy(host, WToU8(wHost));
+                     }
                  }
              }
              
@@ -665,11 +989,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ClearForm();
         }
         else if (id == ID_BTN_SAVE) {
-            wchar_t wName[NAME_LEN], wEmail[EMAIL_LEN], wSSH[PATH_LEN], wHost[HOST_LEN];
+            wchar_t wName[NAME_LEN], wEmail[EMAIL_LEN], wSSH[PATH_LEN];
             GetWindowTextW(hName, wName, NAME_LEN);
             GetWindowTextW(hEmail, wEmail, EMAIL_LEN);
             GetWindowTextW(hSSH, wSSH, PATH_LEN);
-            GetWindowTextW(hHost, wHost, HOST_LEN);
 
             char* name = WToU8(wName);
             char nameBuf[NAME_LEN]; strcpy(nameBuf, name);
@@ -679,9 +1002,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             
             char* ssh = WToU8(wSSH);
             char sshBuf[PATH_LEN]; strcpy(sshBuf, ssh);
-            
-            char* host = WToU8(wHost);
-            char hostBuf[HOST_LEN]; strcpy(hostBuf, host);
 
             if (strlen(nameBuf) == 0 || strlen(emailBuf) == 0) {
                 ShowMessage(hwnd, L"用户名和邮箱不能为空", L"错误", MB_OK);
@@ -696,34 +1016,73 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
 
             if (strlen(currentEditID) > 0) {
-                // 更新
+                // 更新现有账户
                 for (int i = 0; i < config.account_count; i++) {
                     if (strcmp(config.accounts[i].id, currentEditID) == 0) {
+                        // 保存原始数据用于比较
+                        char originalKeyPath[PATH_LEN];
+                        strcpy(originalKeyPath, config.accounts[i].ssh_key_path);
+                        int originalHostCount = config.accounts[i].host_count;
+                        char originalHosts[10][HOST_LEN];
+                        for (int j = 0; j < originalHostCount; j++) {
+                            strcpy(originalHosts[j], config.accounts[i].host_list[j]);
+                        }
+                        
+                        // 更新账户信息
                         strcpy(config.accounts[i].name, nameBuf);
                         strcpy(config.accounts[i].email, emailBuf);
                         strcpy(config.accounts[i].ssh_key_path, sshBuf);
-                        strcpy(config.accounts[i].git_host, hostBuf);
+                        
+                        // 更新hosts列表
+                        UpdateAccountHosts(&config.accounts[i]);
+                        
+                        // 创建一个新账户hosts的列表
+                        const char* newHosts[10];
+                        for (int j = 0; j < config.accounts[i].host_count; j++) {
+                            newHosts[j] = config.accounts[i].host_list[j];
+                        }
+                        
+                        // 如果SSH密钥路径或hosts发生变化，需要更新SSH配置
+                        if (strcmp(originalKeyPath, config.accounts[i].ssh_key_path) != 0 || 
+                            originalHostCount != config.accounts[i].host_count ||
+                            memcmp(originalHosts, config.accounts[i].host_list, sizeof(originalHosts)) != 0) {
+                            
+                            // 清理旧的SSH配置（只清理与旧密钥相关的、但不在新hosts列表中的配置）
+                            if (strlen(originalKeyPath) > 0) {
+                                CleanupSSHConfigForKey(originalKeyPath, config.accounts[i].email, newHosts, config.accounts[i].host_count);
+                            }
+                            
+                            // 添加新的配置
+                            if (strlen(config.accounts[i].ssh_key_path) > 0 && config.accounts[i].host_count > 0) {
+                                AddMultipleHostsToSSHConfig(config.accounts[i].ssh_key_path, config.accounts[i].email, config.accounts[i].host_list, config.accounts[i].host_count);
+                            }
+                        }
+                        
                         break;
                     }
                 }
+                
                 ShowMessage(hwnd, L"账户更新成功", L"成功", MB_OK);
             } else {
-                // 新增
+                // 新增账户
                 if (config.account_count < MAX_ACCOUNTS) {
                     Account* acc = &config.accounts[config.account_count];
                     snprintf(acc->id, ID_LEN, "%lld", (long long)time(NULL));
                     strcpy(acc->name, nameBuf);
                     strcpy(acc->email, emailBuf);
                     strcpy(acc->ssh_key_path, sshBuf);
-                    strcpy(acc->git_host, hostBuf);
+                    
+                    // 更新hosts列表
+                    UpdateAccountHosts(acc);
+                    
+                    // 为新账户添加SSH配置
+                    if (strlen(sshBuf) > 0 && acc->host_count > 0) {
+                        AddMultipleHostsToSSHConfig(sshBuf, emailBuf, acc->host_list, acc->host_count);
+                    }
+                    
                     config.account_count++;
                     ShowMessage(hwnd, L"账户添加成功", L"成功", MB_OK);
                 }
-            }
-            
-            // 如果指定了 SSH 密钥路径，自动添加到 SSH config
-            if (strlen(sshBuf) > 0 && strlen(hostBuf) > 0) {
-                AddExistingKeyToSSHConfig(sshBuf, emailBuf, hostBuf);
             }
             
             SaveConfig(&config);
