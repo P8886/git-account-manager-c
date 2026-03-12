@@ -88,6 +88,34 @@ git remote -v
 git remote set-url origin git@github.com-userA@example.com:username/repo.git
 ```
 
+### 私有部署 Git 平台（非标准端口）
+
+对于私有部署的 Git 平台（如自建 GitLab、Gitea 等），如果使用非标准 SSH 端口，请在 SSH Hosts 字段中填写 `主机:端口` 格式：
+
+**填写示例**：
+- `47.112.98.200:8223`
+- `git.company.com:2222`
+- `mygitlab.local:2022`
+
+**生成的 SSH 配置**：
+```ssh
+# Git configuration for user@example.com
+Host 47.112.98.200:8223-user@example.com
+    HostName 47.112.98.200
+    User git
+    Port 8223
+    IdentityFile ~/.ssh/id_private
+    IdentitiesOnly yes
+    PreferredAuthentications publickey
+```
+
+**Clone 示例**：
+```bash
+git clone git@47.112.98.200:8223-user@example.com:group/project.git
+```
+
+> **注意**：端口号必须填写，否则 SSH 将使用默认端口 22，导致连接失败。
+
 ## 🚀 最近更新 (Changelog)
 
 ### v1.2.1 - 细节完善与编码修复

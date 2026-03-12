@@ -685,8 +685,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         y += ctrlH + rowGap;
 
-        // Row 5: SSH Hosts 标签 + 第一个host控件 + 新增按钮
+        // Row 5: SSH Hosts 标签 + 提示 + 第一个host控件 + 新增按钮
         CreateWindowW(L"STATIC", L"SSH Hosts:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
+        // 端口号提示（支持 host:port 格式，默认端口22）- 放在标签右侧
+        CreateWindowW(L"STATIC", L"(支持 host:port)", WS_CHILD | WS_VISIBLE, rightX + labelWidth, y + DPI(4), DPI(110), DPI(20), hwnd, NULL, NULL, NULL);
         
         // 创建第一个host控件（下拉框）
         HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
@@ -850,8 +852,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
             if (index != -1) {
-                // 只删除UI控件，不立即更新SSH config
-                // SSH config的更新应该在用户点击"更新账户"或"添加账户"按钮时执行
+                // 只删除UI控件，SSH config的更新在用户点击"更新账户"时执行
                 RemoveHostControl(index);
             }
         }
@@ -962,15 +963,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 // 更新现有账户
                 for (int i = 0; i < config.account_count; i++) {
                     if (strcmp(config.accounts[i].id, currentEditID) == 0) {
-                        // 保存原始数据用于比较
-                        char originalKeyPath[PATH_LEN];
-                        strcpy(originalKeyPath, config.accounts[i].ssh_key_path);
-                        int originalHostCount = config.accounts[i].host_count;
-                        char originalHosts[10][HOST_LEN];
-                        for (int j = 0; j < originalHostCount; j++) {
-                            strcpy(originalHosts[j], config.accounts[i].host_list[j]);
-                        }
-                        
                         // 更新账户信息
                         strcpy(config.accounts[i].name, nameBuf);
                         strcpy(config.accounts[i].email, emailBuf);
@@ -979,25 +971,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         // 更新hosts列表
                         UpdateAccountHosts(&config.accounts[i]);
                         
-                        // 创建一个新账户hosts的列表
-                        const char* newHosts[10];
-                        for (int j = 0; j < config.accounts[i].host_count; j++) {
-                            newHosts[j] = config.accounts[i].host_list[j];
-                        }
-                        
-                        // 如果SSH密钥路径或hosts发生变化，需要更新SSH配置
-                        if (strcmp(originalKeyPath, config.accounts[i].ssh_key_path) != 0 || 
-                            originalHostCount != config.accounts[i].host_count ||
-                            memcmp(originalHosts, config.accounts[i].host_list, sizeof(originalHosts)) != 0) {
-                            
-                            // 清理旧的SSH配置（只清理与旧密钥相关的、但不在新hosts列表中的配置）
-                            if (strlen(originalKeyPath) > 0) {
-                                CleanupSSHConfigForKey(originalKeyPath, config.accounts[i].email, newHosts, config.accounts[i].host_count);
-                            }
-                            
-                            // 添加新的配置
-                            if (strlen(config.accounts[i].ssh_key_path) > 0 && config.accounts[i].host_count > 0) {
-                                AddMultipleHostsToSSHConfig(config.accounts[i].ssh_key_path, config.accounts[i].email, config.accounts[i].host_list, config.accounts[i].host_count);
+                        // 更新SSH配置：先删除该邮箱的所有配置，再重新添加
+                        if (strlen(sshBuf) > 0) {
+                            CleanupSSHConfigForKey(sshBuf, emailBuf, NULL, 0); // 删除所有该邮箱的配置
+                            if (config.accounts[i].host_count > 0) {
+                                AddMultipleHostsToSSHConfig(sshBuf, emailBuf, config.accounts[i].host_list, config.accounts[i].host_count);
                             }
                         }
                         
@@ -1046,7 +1024,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         else if (id == ID_BTN_DELETE) {
             if (strlen(currentEditID) > 0) {
-                if (ShowMessage(hwnd, L"确定要删除此账户吗？", L"确认", MB_YESNO) == IDYES) {
+                if (ShowMessage(hwnd, L"确定要删除此账户吗？\n\n这将同时删除该账户在SSH config中的所有配置。", L"确认删除", MB_YESNO) == IDYES) {
                     int found = -1;
                     for (int i = 0; i < config.account_count; i++) {
                         if (strcmp(config.accounts[i].id, currentEditID) == 0) {
@@ -1055,7 +1033,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         }
                     }
                     if (found != -1) {
-                        // 移除并移位
+                        // 删除前，清理该账户在SSH config中的所有配置
+                        Account* acc = &config.accounts[found];
+                        if (strlen(acc->ssh_key_path) > 0 && strlen(acc->email) > 0) {
+                            // 传入空的keepHosts列表，表示删除所有该账户的配置
+                            CleanupSSHConfigForKey(acc->ssh_key_path, acc->email, NULL, 0);
+                        }
+                        
+                        // 从配置数组中移除并移位
                         for (int i = found; i < config.account_count - 1; i++) {
                             config.accounts[i] = config.accounts[i + 1];
                         }
@@ -1063,6 +1048,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         SaveConfig(&config);
                         ClearForm();
                         RefreshList();
+                        ShowMessage(hwnd, L"账户已删除，相关SSH配置已清理", L"成功", MB_OK);
                     }
                 }
             }
