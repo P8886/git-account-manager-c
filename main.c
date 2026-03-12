@@ -841,7 +841,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
         }
         else if (id >= ID_HOST_DELETE_PREFIX && id < ID_HOST_DELETE_PREFIX + 10) {
-            // 修复：需要找到正确的控件索引，而不是直接使用ID减去前缀
+            // 找到正确的控件索引
             int index = -1;
             for (int i = 1; i < hHostControlCount; i++) {  // 从1开始，因为0是初始控件
                 if (hHostControls[i * 2 + 1] != NULL && GetDlgCtrlID(hHostControls[i * 2 + 1]) == id) {
@@ -850,48 +850,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
             if (index != -1) {
-                // 先获取当前账户信息和SSH路径，以便更新SSH配置
-                char currentSSHPath[PATH_LEN] = "";
-                if (strlen(currentEditID) > 0) {
-                    // 获取当前SSH路径
-                    wchar_t wSSH[PATH_LEN];
-                    GetWindowTextW(hSSH, wSSH, PATH_LEN);
-                    strcpy(currentSSHPath, WToU8(wSSH));
-                }
-                
-                // 执行删除控件操作
+                // 只删除UI控件，不立即更新SSH config
+                // SSH config的更新应该在用户点击"更新账户"或"添加账户"按钮时执行
                 RemoveHostControl(index);
-                
-                // 如果当前正在编辑账户，需要更新SSH配置
-                if (strlen(currentEditID) > 0 && strlen(currentSSHPath) > 0) {
-                    // 更新账户的hosts列表
-                    Account* acc = NULL;
-                    for (int i = 0; i < config.account_count; i++) {
-                        if (strcmp(config.accounts[i].id, currentEditID) == 0) {
-                            acc = &config.accounts[i];
-                            break;
-                        }
-                    }
-                    
-                    if (acc != NULL) {
-                        // 更新hosts列表
-                        UpdateAccountHosts(acc);
-                        
-                        // 创建一个新hosts列表
-                        const char* newHosts[10];
-                        for (int j = 0; j < acc->host_count; j++) {
-                            newHosts[j] = acc->host_list[j];
-                        }
-                        
-                        // 清理与该密钥相关的旧配置，但保留其他仍在使用中的host配置
-                        CleanupSSHConfigForKey(currentSSHPath, acc->email, newHosts, acc->host_count);
-                        
-                        // 重新添加当前控件中存在的hosts配置
-                        if (acc->host_count > 0) {
-                            AddMultipleHostsToSSHConfig(currentSSHPath, acc->email, acc->host_list, acc->host_count);
-                        }
-                    }
-                }
             }
         }
         else if (id == ID_BTN_ADD_HOST) {
