@@ -1007,8 +1007,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 
                 ShowMessage(hwnd, L"账户更新成功", L"成功", MB_OK);
             } else {
-                // 新增账户
-                if (config.account_count < MAX_ACCOUNTS) {
+                // 新增账户 - 先校验邮箱是否已存在
+                int emailExists = 0;
+                for (int i = 0; i < config.account_count; i++) {
+                    if (strcmp(config.accounts[i].email, emailBuf) == 0) {
+                        emailExists = 1;
+                        break;
+                    }
+                }
+                
+                if (emailExists) {
+                    wchar_t msg[512];
+                    swprintf(msg, sizeof(msg)/sizeof(wchar_t), L"邮箱 %hs 已存在，不能重复添加！", emailBuf);
+                    ShowMessage(hwnd, msg, L"错误", MB_OK);
+                } else if (config.account_count < MAX_ACCOUNTS) {
                     Account* acc = &config.accounts[config.account_count];
                     snprintf(acc->id, ID_LEN, "%lld", (long long)time(NULL));
                     strcpy(acc->name, nameBuf);
