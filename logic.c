@@ -723,13 +723,17 @@ int GetHostFromSSHConfig(const char* keyPath, char* outHost, int maxLen) {
 }
 
 // 通用的更新 SSH config 的逻辑：读入内存行数组，为每个host创建独立的配置块
-// 使用邮箱作为账号标识，允许同一Host名称有多个配置（属于不同账号）
+// 使用邮箱作为账号标识，Host别名格式：host-email（如 github.com-552412@qq.com）
 static int ModifySSHConfigLines(const char* keyName, const char* email, const char* host) {
     char userProfile[MAX_PATH];
     if (FAILED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, userProfile))) return 0;
     
     char sshConfigPath[MAX_PATH];
     snprintf(sshConfigPath, MAX_PATH, "%s\\.ssh\\config", userProfile);
+    
+    // 创建带邮箱后缀的Host别名（如 github.com-552412@qq.com）
+    char hostAlias[512];
+    snprintf(hostAlias, sizeof(hostAlias), "%s-%s", host, email);
     
     // 读取现有配置
     int maxLines = 1000;
@@ -744,7 +748,7 @@ static int ModifySSHConfigLines(const char* keyName, const char* email, const ch
         fclose(f);
     }
     
-    // 检查是否已经存在相同邮箱+Host的配置
+    // 检查是否已经存在相同邮箱+Host的配置（通过Host别名匹配）
     int existingBlockStart = -1; // 记录现有Host块的起始位置（包括注释）
     int existingBlockEnd = -1;   // 记录现有Host块的结束位置
     
@@ -752,64 +756,66 @@ static int ModifySSHConfigLines(const char* keyName, const char* email, const ch
         char* trimmed = lines[i];
         while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
         
-        // 检查注释行是否匹配邮箱
-        if (strncmp(trimmed, "# Git configuration for ", 24) == 0) {
-            // 提取注释中的邮箱
-            char commentEmail[256];
+        // 检查Host行是否匹配别名
+        if (strncmp(trimmed, "Host ", 5) == 0) {
+            char* hostStart = trimmed + 5;
+            while (*hostStart == ' ' || *hostStart == '\t') hostStart++;
+            
+            char currentHost[256];
             int k = 0;
-            const char* emailStart = trimmed + 24;
-            while (emailStart[k] && emailStart[k] != '\n' && emailStart[k] != '\r' && k < 255) {
-                commentEmail[k] = emailStart[k];
+            while (hostStart[k] && hostStart[k] != ' ' && hostStart[k] != '\t' && 
+                   hostStart[k] != '\n' && hostStart[k] != '\r') {
+                currentHost[k] = hostStart[k];
                 k++;
             }
-            commentEmail[k] = '\0';
+            currentHost[k] = '\0';
             
-            // 检查邮箱是否匹配
-            if (strcmp(commentEmail, email) == 0) {
-                // 邮箱匹配，检查下一行的Host是否匹配
-                if (i + 1 < lineCount) {
-                    char* nextLine = lines[i + 1];
-                    while (*nextLine == ' ' || *nextLine == '\t') nextLine++;
-                    
-                    if (strncmp(nextLine, "Host ", 5) == 0) {
-                        char* hostStart = nextLine + 5;
-                        while (*hostStart == ' ' || *hostStart == '\t') hostStart++;
-                        
-                        char currentHost[256];
+            // 检查Host别名是否匹配
+            if (strcmp(currentHost, hostAlias) == 0) {
+                // 找到匹配的配置块，检查前面的注释是否匹配邮箱
+                existingBlockStart = i;
+                existingBlockEnd = i;
+                
+                // 检查前一行是否是匹配的注释
+                if (i > 0) {
+                    char* prevLine = lines[i - 1];
+                    while (*prevLine == ' ' || *prevLine == '\t') prevLine++;
+                    if (strncmp(prevLine, "# Git configuration for ", 24) == 0) {
+                        char commentEmail[256];
                         k = 0;
-                        while (hostStart[k] && hostStart[k] != ' ' && hostStart[k] != '\t' && 
-                               hostStart[k] != '\n' && hostStart[k] != '\r') {
-                            currentHost[k] = hostStart[k];
+                        const char* emailStart = prevLine + 24;
+                        while (emailStart[k] && emailStart[k] != '\n' && emailStart[k] != '\r' && k < 255) {
+                            commentEmail[k] = emailStart[k];
                             k++;
                         }
-                        currentHost[k] = '\0';
+                        commentEmail[k] = '\0';
                         
-                        if (strcmp(currentHost, host) == 0) {
-                            // 找到匹配的配置块
-                            existingBlockStart = i; // 从注释行开始
-                            existingBlockEnd = i + 1;
-                            
-                            // 找到Host块的结束位置
-                            for (int j = i + 2; j < lineCount && j < i + 20; j++) {
-                                char* line = lines[j];
-                                while (*line == ' ' || *line == '\t') line++;
-                                
-                                if (strncmp(line, "Host ", 5) == 0 || strncmp(line, "#", 1) == 0) {
-                                    // 到达下一个Host块或注释，结束
-                                    existingBlockEnd = j - 1;
-                                    break;
-                                }
-                                existingBlockEnd = j;
-                            }
-                            break;
+                        if (strcmp(commentEmail, email) == 0) {
+                            existingBlockStart = i - 1; // 从注释行开始
                         }
                     }
                 }
+                
+                // 找到Host块的结束位置
+                for (int j = existingBlockStart + 1; j < lineCount && j < existingBlockStart + 20; j++) {
+                    char* line = lines[j];
+                    while (*line == ' ' || *line == '\t') line++;
+                    
+                    if (strncmp(line, "Host ", 5) == 0 || strncmp(line, "#", 1) == 0) {
+                        // 到达下一个Host块或注释，结束
+                        existingBlockEnd = j - 1;
+                        break;
+                    }
+                    existingBlockEnd = j;
+                }
+                break;
             }
         }
     }
     
     // 创建新的Host配置块
+    // Host别名格式：host-email（如 github.com-552412@qq.com）
+    // HostName保持原始host（实际连接的主机名）
     char newBlock[2048];
     snprintf(newBlock, sizeof(newBlock),
         "# Git configuration for %s\n"
@@ -819,7 +825,7 @@ static int ModifySSHConfigLines(const char* keyName, const char* email, const ch
         "\tIdentityFile ~/.ssh/%s\n"
         "\tIdentitiesOnly yes\n"
         "\tPreferredAuthentications publickey\n\n",
-        email, host, host, keyName);
+        email, hostAlias, host, keyName);
     
     FILE* fout = fopen(sshConfigPath, "wb");
     if (!fout) {
@@ -864,7 +870,7 @@ static int ModifySSHConfigLines(const char* keyName, const char* email, const ch
 }
 
 // 清理SSH配置文件中与指定账号相关的所有Host配置（保留需要的hosts）
-// 根据注释中的邮箱判断配置归属
+// 根据注释中的邮箱判断配置归属，Host别名格式为 host-email
 int CleanupSSHConfigForKey(const char* keyPath, const char* email, const char* const* keepHosts, int keepHostCount) {
     char userProfile[MAX_PATH];
     if (FAILED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, userProfile))) return 0;
@@ -919,22 +925,39 @@ int CleanupSSHConfigForKey(const char* keyPath, const char* email, const char* c
                     while (*nextLine == ' ' || *nextLine == '\t') nextLine++;
                     
                     if (strncmp(nextLine, "Host ", 5) == 0) {
-                        // 提取Host名称
+                        // 提取Host别名（格式：host-email）
                         char* hostStart = nextLine + 5;
                         while (*hostStart == ' ' || *hostStart == '\t') hostStart++;
-                        char host[HOST_LEN];
+                        char hostAlias[HOST_LEN];
                         k = 0;
                         while (hostStart[k] && hostStart[k] != ' ' && hostStart[k] != '\t' && 
                                hostStart[k] != '\n' && hostStart[k] != '\r') {
-                            host[k] = hostStart[k];
+                            hostAlias[k] = hostStart[k];
                             k++;
                         }
-                        host[k] = '\0';
+                        hostAlias[k] = '\0';
                         
-                        // 检查这个host是否需要保留
+                        // 从Host别名中提取原始host（去掉 -email 后缀）
+                        // 找到最后一个包含@的位置（邮箱中的@），然后找到它前面的-
+                        char originalHost[HOST_LEN];
+                        strcpy(originalHost, hostAlias);
+                        
+                        char* atPos = strrchr(originalHost, '@');
+                        if (atPos != NULL) {
+                            // 找到@前面的最后一个-
+                            char* dashPos = atPos - 1;
+                            while (dashPos > originalHost && *dashPos != '-') {
+                                dashPos--;
+                            }
+                            if (*dashPos == '-') {
+                                *dashPos = '\0'; // 截断，只保留原始host
+                            }
+                        }
+                        
+                        // 检查这个原始host是否需要保留
                         int shouldKeep = 0;
                         for (int j = 0; j < keepHostCount; j++) {
-                            if (strcmp(host, keepHosts[j]) == 0) {
+                            if (strcmp(originalHost, keepHosts[j]) == 0) {
                                 shouldKeep = 1;
                                 break;
                             }

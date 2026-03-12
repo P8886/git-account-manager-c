@@ -19,7 +19,74 @@
     *   **自动扫描**: 启动时自动扫描 `~/.ssh/` 目录下的私钥。
     *   **可视化选择**: 采用下拉组合框 (ComboBox) 展示 SSH Key，支持超长路径完整显示。
     *   **密钥生成**: 内置 SSH 密钥生成工具 (Ed25519/RSA)。
+*   **多账号隔离**:
+    *   使用 Host 别名机制，支持同一 Git 服务（如 github.com）配置多个账号。
+    *   Host 别名格式：`<host>-<email>`（如 `github.com-user@example.com`）。
 *   **中文支持**: 全中文界面及源代码注释，便于二次开发。
+
+## ⚠️ 环境要求
+
+*   **Git 版本**: 2.0+ （推荐 2.10+）
+*   **OpenSSH 版本**: 6.0+
+*   **操作系统**: Windows 7/8/10/11
+
+> **关于 Host 别名中的 `@` 符号**: 
+> SSH config 中 Host 别名支持使用 `@` 符号。经测试，Git 2.0+ 和 OpenSSH 6.0+ 均可正常解析。
+> 如果您使用的是极老旧的 Git 版本（< 2.0），可能会出现解析问题，建议升级到最新版本。
+
+## 📖 使用说明
+
+### 多账号配置原理
+
+本工具使用 **Host 别名** 机制实现同一 Git 服务的多账号支持。
+
+例如，您有两个 GitHub 账号：
+- 账号A：`userA@example.com`
+- 账号B：`userB@example.com`
+
+配置后，SSH config 文件会生成如下配置：
+
+```ssh
+# Git configuration for userA@example.com
+Host github.com-userA@example.com
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/id_userA
+    IdentitiesOnly yes
+    PreferredAuthentications publickey
+
+# Git configuration for userB@example.com
+Host github.com-userB@example.com
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/id_userB
+    IdentitiesOnly yes
+    PreferredAuthentications publickey
+```
+
+### Clone 仓库时使用别名
+
+当您需要使用特定账号 clone 仓库时，**需要使用 Host 别名**：
+
+```bash
+# 使用账号A clone
+git clone git@github.com-userA@example.com:username/repo.git
+
+# 使用账号B clone
+git clone git@github.com-userB@example.com:username/repo.git
+```
+
+### 已有仓库切换账号
+
+如果您已经 clone 了仓库，可以修改 `.git/config` 中的 remote URL：
+
+```bash
+# 查看当前 remote
+git remote -v
+
+# 修改 remote URL 使用特定账号
+git remote set-url origin git@github.com-userA@example.com:username/repo.git
+```
 
 ## 🚀 最近更新 (Changelog)
 
