@@ -50,6 +50,7 @@ BOOL g_bIgnoreEditChange = FALSE;
 HBRUSH hBrushDark, hBrushLight, hBrushControlDark;
 HFONT hGlobalFont = NULL; // 全局字体句柄
 float g_dpiScale = 1.0f;  // DPI 缩放比例 (2K屏幕通常为 1.25 或 1.5)
+HANDLE g_hMutex = NULL;   // 单实例互斥体句柄
 
 // 函数声明
 void RepositionLowerControls();
@@ -136,16 +137,16 @@ void RepositionLowerControls() {
     int rightX = DPI(25) + DPI(200) + DPI(25);  // 左侧列表宽度 + 间距
     int rightWidth = DPI(340);
     int ctrlH = DPI(26);
-    int rowGap = DPI(8);
+    int rowGap = DPI(16);  // 统一行间距
     int labelWidth = DPI(70);
     int inputX = rightX + labelWidth + DPI(10);
     int inputWidth = rightWidth - labelWidth - DPI(10);
     
     // 计算host控件区域的总高度
-    // 初始位置：用户名、邮箱、SSH标签 + SSH组合框 + SSH Hosts标签行 + 第一个host控件行（初始的）
+    // 初始位置：用户名、邮箱、SSH密钥、SSH Hosts标签（4行），然后是host控件
     int yBase = DPI(25); // 初始边距
-    int initialCtrlsHeight = (3 * (ctrlH + DPI(16))) + (ctrlH + DPI(8)) + (ctrlH + DPI(4)); // 用户名、邮箱、SSH标签 + SSH组合框 + SSH Hosts标签行
-    int hostCtrlsHeight = (ctrlH + rowGap) * hHostControlCount; // 所有host控件（包括初始的1个）的高度
+    int initialCtrlsHeight = 4 * (ctrlH + rowGap); // 用户名、邮箱、SSH密钥、SSH Hosts标签（4行）
+    int hostCtrlsHeight = (ctrlH + rowGap) * hHostControlCount; // 所有host控件的高度
     int totalCtrlsHeight = initialCtrlsHeight + hostCtrlsHeight;
     int buttonsY = yBase + totalCtrlsHeight;  // 按钮组的Y位置
 
@@ -247,13 +248,14 @@ void AddHostControl(const wchar_t* initialHost) {
     int inputX = rightX + labelWidth + DPI(10);
     int inputWidth = DPI(340) - labelWidth - DPI(10);
     int ctrlH = DPI(26);
-    int rowGap = DPI(8);  // 减小行间距以适应更多控件
+    int rowGap = DPI(16);  // 行间距
 
     // 计算Host控件的Y位置 - 在SSH密钥和现有Host控件之后
-    // 从顶部开始计算：用户名、邮箱、SSH标签、SSH组合框，然后是每个host控件
+    // 从顶部开始计算：用户名、邮箱、SSH密钥（3行），然后是SSH Hosts行
     int yBase = DPI(25); // 初始边距
-    // 从第二个控件开始计算位置（因为第一个控件已经在初始化时创建）
-    int hostY = yBase + (3 * (ctrlH + DPI(16))) + (ctrlH + DPI(8)) + (ctrlH + DPI(4)) + (ctrlH + rowGap) * (hHostControlCount - 1);  // 用户名、邮箱、SSH标签行 + SSH组合框行 + SSH Hosts标签行 + 已有host控件行数（减去初始的1个）
+    int initialCtrlsHeight = 3 * (ctrlH + rowGap); // 到SSH Hosts行之前的高度
+    // 新控件的Y位置 = 初始高度 + 已有host控件数量 * 行高
+    int hostY = yBase + initialCtrlsHeight + (ctrlH + rowGap) * hHostControlCount;
 
     // 创建下拉框 - 使用全局主窗口句柄，恢复为标准样式
     HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
@@ -670,7 +672,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hBtnGenerate = CreateWindowW(L"BUTTON", L"生成", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
             rightX + rightWidth - genBtnW, y, genBtnW, ctrlH, hwnd, (HMENU)ID_BTN_GENERATE, NULL, NULL);
 
-        y += ctrlH + DPI(8); // SSH 组内间距小一点
+        y += ctrlH + rowGap;
 
         // Row 4: SSH ComboBox + 浏览按钮
         int browseBtnW = DPI(40);
@@ -681,62 +683,42 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         CreateWindowW(L"BUTTON", L"...", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
             rightX + comboW + DPI(5), y, browseBtnW, ctrlH, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
 
-        y += ctrlH + rowGap + DPI(4);
+        y += ctrlH + rowGap;
 
-                                                        // Row 5: SSH Hosts 标签 + 第一个host控件 + 新增按钮
+        // Row 5: SSH Hosts 标签 + 第一个host控件 + 新增按钮
+        CreateWindowW(L"STATIC", L"SSH Hosts:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
+        
+        // 创建第一个host控件（下拉框）
+        HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
+            inputX, y, inputWidth - DPI(35), ctrlH, hwnd, (HMENU)(INT_PTR)(ID_HOST_COMBO_PREFIX + 0), NULL, NULL);
+        SendMessage(hCombo, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
+        // 添加常见的Git服务
+        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"github.com");
+        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"gitlab.com");
+        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"gitee.com");
+        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"bitbucket.org");
+        // 存储第一个控件句柄
+        hHostControls[0] = hCombo;
+        hHostControls[1] = NULL; // 第一个控件没有删除按钮，但预留位置
+        hHostControlCount = 1; // 初始有一个控件，但不显示删除按钮
 
-                                                        hLblHost = CreateWindowW(L"STATIC", L"SSH Hosts:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
+        // "新增"按钮 (放在第一个下拉框的右侧)
+        hBtnAddHost = CreateWindowW(L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
+            inputX + inputWidth - DPI(30), y, DPI(26), ctrlH, hwnd, (HMENU)ID_BTN_ADD_HOST, NULL, NULL);
 
-                                                        
+        y += ctrlH + rowGap;
 
-                                                        // 创建第一个host控件（下拉框）
-                                                        // 使用和动态添加控件相同的宽度 inputWidth - DPI(35)
-                                                        HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_TABSTOP, 
-                                                            inputX, y, inputWidth - DPI(35), ctrlH, hwnd, (HMENU)(INT_PTR)(ID_HOST_COMBO_PREFIX + 0), NULL, NULL);
-                                                        SendMessage(hCombo, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)DPI(22));
-                                                        // 添加常见的Git服务
-                                                        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"github.com");
-                                                        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"gitlab.com");
-                                                        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"gitee.com");
-                                                        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"bitbucket.org");
-                                                        // 存储第一个控件句柄
-                                                        hHostControls[0] = hCombo;
-                                                        hHostControls[1] = NULL; // 第一个控件没有删除按钮，但预留位置
-                                                        hHostControlCount = 1; // 初始有一个控件，但不显示删除按钮
+        // Row 6+: 动态添加的Host控件从这里开始排布
 
-                                                        // "新增"按钮 (放在第一个下拉框的右侧，与删除按钮位置一致)
-                                                        hBtnAddHost = CreateWindowW(L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
-                                                            inputX + inputWidth - DPI(30), y, DPI(26), ctrlH, hwnd, (HMENU)ID_BTN_ADD_HOST, NULL, NULL);
+        // Row: 添加/取消/删除 按钮组 - 通过RepositionLowerControls动态调整位置
+        int btnWidth = DPI(100);
+        hBtnSave = CreateWindowW(L"BUTTON", L"添加账户", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, btnWidth, ctrlH, hwnd, (HMENU)ID_BTN_SAVE, NULL, NULL);
+        hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, DPI(70), ctrlH, hwnd, (HMENU)ID_BTN_CANCEL, NULL, NULL);
+        ShowWindow(hBtnCancel, SW_HIDE);
+        hBtnDelete = CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, DPI(80), ctrlH, hwnd, (HMENU)ID_BTN_DELETE, NULL, NULL);
 
-                                                
-
-                                                        y += ctrlH + DPI(4); // 小间距
-
-                                                
-
-                                                        // Row 6: 预留区域给动态添加的Host控件（从第二行开始，从y位置开始往下排布）
-
-                                                        // 设置初始的后续控件位置（但不创建控件，只计算空间）
-
-                                                
-
-                                                        // Row 7: 添加/取消/删除 按钮组 - 保持在固定位置，通过RepositionLowerControls动态调整
-
-                                                        int btnWidth = DPI(100);
-
-                                                        hBtnSave = CreateWindowW(L"BUTTON", L"添加账户", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, btnWidth, ctrlH, hwnd, (HMENU)ID_BTN_SAVE, NULL, NULL);
-
-                                                        hBtnCancel = CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, DPI(70), ctrlH, hwnd, (HMENU)ID_BTN_CANCEL, NULL, NULL);
-
-                                                        ShowWindow(hBtnCancel, SW_HIDE);
-
-                                                        hBtnDelete = CreateWindowW(L"BUTTON", L"删除", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, DPI(80), ctrlH, hwnd, (HMENU)ID_BTN_DELETE, NULL, NULL);
-
-                                                
-
-                                                        // Row 8: 切换到选中账户 - 也在固定位置，通过RepositionLowerControls动态调整
-
-                                                        hBtnSwitch = CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, rightWidth, ctrlH, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
+        // Row: 切换到选中账户 - 通过RepositionLowerControls动态调整位置
+        hBtnSwitch = CreateWindowW(L"BUTTON", L"切换到选中账户", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, rightWidth, ctrlH, hwnd, (HMENU)ID_BTN_SWITCH, NULL, NULL);
 
                                                         
 
@@ -1150,6 +1132,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_DESTROY:
         DeleteObject(hBrushDark);
         DeleteObject(hBrushControlDark);
+        if (g_hMutex) {
+            ReleaseMutex(g_hMutex);
+            CloseHandle(g_hMutex);
+        }
         PostQuitMessage(0);
         break;
     default:
@@ -1159,6 +1145,24 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // 单实例检查：如果程序已在运行，激活现有窗口并退出
+    g_hMutex = CreateMutexW(NULL, TRUE, L"GitAccountManagerC_SingleInstance");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        // 程序已在运行，查找并激活现有窗口
+        HWND hExistingWnd = FindWindowW(L"GitAccountManagerC", NULL);
+        if (hExistingWnd) {
+            // 如果窗口最小化，恢复它
+            if (IsIconic(hExistingWnd)) {
+                ShowWindow(hExistingWnd, SW_RESTORE);
+            }
+            // 激活窗口
+            SetForegroundWindow(hExistingWnd);
+        }
+        // 关闭互斥体句柄并退出
+        if (g_hMutex) CloseHandle(g_hMutex);
+        return 0;
+    }
+    
     // 初始化 DPI 缩放比例 (支持 2K/4K 高分屏)
     InitDPIScale();
     

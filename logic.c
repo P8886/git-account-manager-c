@@ -723,6 +723,7 @@ int GetHostFromSSHConfig(const char* keyPath, char* outHost, int maxLen) {
 }
 
 // 通用的更新 SSH config 的逻辑：读入内存行数组，为每个host创建独立的配置块
+// 使用邮箱作为账号标识，允许同一Host名称有多个配置（属于不同账号）
 static int ModifySSHConfigLines(const char* keyName, const char* email, const char* host) {
     char userProfile[MAX_PATH];
     if (FAILED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, userProfile))) return 0;
@@ -743,129 +744,72 @@ static int ModifySSHConfigLines(const char* keyName, const char* email, const ch
         fclose(f);
     }
     
-    // 检查是否已经存在相同的host配置（更全面的检查）
-    int hostExists = 0;
-    int existingHostStart = -1; // 记录现有Host块的起始位置
-    int existingHostEnd = -1;   // 记录现有Host块的结束位置
+    // 检查是否已经存在相同邮箱+Host的配置
+    int existingBlockStart = -1; // 记录现有Host块的起始位置（包括注释）
+    int existingBlockEnd = -1;   // 记录现有Host块的结束位置
     
     for (int i = 0; i < lineCount; i++) {
         char* trimmed = lines[i];
         while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
         
-        if (strncmp(trimmed, "Host ", 5) == 0) {
-            // 检查host名称
-            char* hostStart = trimmed + 5;
-            while (*hostStart == ' ' || *hostStart == '\t') hostStart++;
-            
-            // 提取host名称
-            char currentHost[256];
+        // 检查注释行是否匹配邮箱
+        if (strncmp(trimmed, "# Git configuration for ", 24) == 0) {
+            // 提取注释中的邮箱
+            char commentEmail[256];
             int k = 0;
-            while (hostStart[k] && hostStart[k] != ' ' && hostStart[k] != '\t' && 
-                   hostStart[k] != '\n' && hostStart[k] != '\r') {
-                currentHost[k] = hostStart[k];
+            const char* emailStart = trimmed + 24;
+            while (emailStart[k] && emailStart[k] != '\n' && emailStart[k] != '\r' && k < 255) {
+                commentEmail[k] = emailStart[k];
                 k++;
             }
-            currentHost[k] = '\0';
+            commentEmail[k] = '\0';
             
-            // 检查host是否匹配
-            if (strcmp(currentHost, host) == 0) {
-                existingHostStart = i; // 记录Host块的起始位置
-                
-                // 在这个Host块中查找IdentityFile
-                existingHostEnd = i; // 初始化结束位置为起始位置
-                for (int j = i + 1; j < lineCount && j < i + 20; j++) {  // 扩大搜索范围
-                    char* nextLine = lines[j];
+            // 检查邮箱是否匹配
+            if (strcmp(commentEmail, email) == 0) {
+                // 邮箱匹配，检查下一行的Host是否匹配
+                if (i + 1 < lineCount) {
+                    char* nextLine = lines[i + 1];
                     while (*nextLine == ' ' || *nextLine == '\t') nextLine++;
                     
                     if (strncmp(nextLine, "Host ", 5) == 0) {
-                        // 到达下一个Host块，跳出内层循环
-                        existingHostEnd = j - 1;
-                        break;
-                    }
-                    
-                    if (strncmp(nextLine, "IdentityFile", 12) == 0) {
-                        // 检查IdentityFile是否匹配
-                        if (strstr(nextLine, keyName)) {
-                            hostExists = 1;  // 相同的Host和IdentityFile已存在
-                            existingHostEnd = j;
+                        char* hostStart = nextLine + 5;
+                        while (*hostStart == ' ' || *hostStart == '\t') hostStart++;
+                        
+                        char currentHost[256];
+                        k = 0;
+                        while (hostStart[k] && hostStart[k] != ' ' && hostStart[k] != '\t' && 
+                               hostStart[k] != '\n' && hostStart[k] != '\r') {
+                            currentHost[k] = hostStart[k];
+                            k++;
+                        }
+                        currentHost[k] = '\0';
+                        
+                        if (strcmp(currentHost, host) == 0) {
+                            // 找到匹配的配置块
+                            existingBlockStart = i; // 从注释行开始
+                            existingBlockEnd = i + 1;
+                            
+                            // 找到Host块的结束位置
+                            for (int j = i + 2; j < lineCount && j < i + 20; j++) {
+                                char* line = lines[j];
+                                while (*line == ' ' || *line == '\t') line++;
+                                
+                                if (strncmp(line, "Host ", 5) == 0 || strncmp(line, "#", 1) == 0) {
+                                    // 到达下一个Host块或注释，结束
+                                    existingBlockEnd = j - 1;
+                                    break;
+                                }
+                                existingBlockEnd = j;
+                            }
                             break;
                         }
                     }
-                    existingHostEnd = j; // 更新结束位置
-                }
-                
-                if (hostExists) {
-                    break;
                 }
             }
         }
     }
     
-    // 如果Host配置已存在，不再添加
-    if (hostExists) {
-        free(lines);
-        return 1;
-    }
-    
-    // 如果Host配置存在但IdentityFile不同（即不同的密钥使用同一个host），则替换
-    if (existingHostStart != -1 && existingHostEnd != -1) {
-        // 创建新的Host配置块
-        char newBlock[2048];
-        snprintf(newBlock, sizeof(newBlock),
-            "# Git configuration for %s\n"
-            "Host %s\n"
-            "\tHostName %s\n"
-            "\tUser git\n"
-            "\tIdentityFile ~/.ssh/%s\n"
-            "\tIdentitiesOnly yes\n"
-            "\tPreferredAuthentications publickey\n\n",
-            email, host, host, keyName);
-        
-        FILE* fout = fopen(sshConfigPath, "wb");
-        if (!fout) {
-            free(lines);
-            return 0;
-        }
-        
-        // 写入Host块之前的配置
-        for (int i = 0; i < existingHostStart; i++) {
-            fwrite(lines[i], 1, strlen(lines[i]), fout);
-        }
-        
-        // 写入新的Host配置块
-        fwrite(newBlock, 1, strlen(newBlock), fout);
-        
-        // 跳过旧的Host块（从existingHostStart到existingHostEnd），写入后面的配置
-        for (int i = existingHostEnd + 1; i < lineCount; i++) {
-            fwrite(lines[i], 1, strlen(lines[i]), fout);
-            if (lines[i][strlen(lines[i])-1] != '\n' && i < lineCount - 1) {
-                fwrite("\n", 1, 1, fout);
-            }
-        }
-        
-        fclose(fout);
-        free(lines);
-        return 1;
-    }
-    
-    FILE* fout = fopen(sshConfigPath, "wb");
-    if (!fout) {
-        free(lines);
-        return 0;
-    }
-    
-    // 写回原来的配置
-    for (int i = 0; i < lineCount; i++) {
-        fwrite(lines[i], 1, strlen(lines[i]), fout);
-        if (lines[i][strlen(lines[i])-1] != '\n' && i < lineCount - 1) {
-            fwrite("\n", 1, 1, fout);
-        }
-    }
-    if (lineCount > 0 && lines[lineCount-1][strlen(lines[lineCount-1])-1] != '\n') {
-        fwrite("\n", 1, 1, fout);
-    }
-    
-    // 添加新的Host配置块
+    // 创建新的Host配置块
     char newBlock[2048];
     snprintf(newBlock, sizeof(newBlock),
         "# Git configuration for %s\n"
@@ -876,14 +820,51 @@ static int ModifySSHConfigLines(const char* keyName, const char* email, const ch
         "\tIdentitiesOnly yes\n"
         "\tPreferredAuthentications publickey\n\n",
         email, host, host, keyName);
-    fwrite(newBlock, 1, strlen(newBlock), fout);
+    
+    FILE* fout = fopen(sshConfigPath, "wb");
+    if (!fout) {
+        free(lines);
+        return 0;
+    }
+    
+    // 如果存在相同邮箱+Host的配置，替换它
+    if (existingBlockStart != -1 && existingBlockEnd != -1) {
+        // 写入配置块之前的配置
+        for (int i = 0; i < existingBlockStart; i++) {
+            fwrite(lines[i], 1, strlen(lines[i]), fout);
+        }
+        
+        // 写入新的配置块
+        fwrite(newBlock, 1, strlen(newBlock), fout);
+        
+        // 跳过旧的配置块，写入后面的配置
+        for (int i = existingBlockEnd + 1; i < lineCount; i++) {
+            fwrite(lines[i], 1, strlen(lines[i]), fout);
+        }
+    } else {
+        // 不存在相同配置，追加新的配置块
+        // 写回原来的配置
+        for (int i = 0; i < lineCount; i++) {
+            fwrite(lines[i], 1, strlen(lines[i]), fout);
+            if (lines[i][strlen(lines[i])-1] != '\n' && i < lineCount - 1) {
+                fwrite("\n", 1, 1, fout);
+            }
+        }
+        if (lineCount > 0 && lines[lineCount-1][strlen(lines[lineCount-1])-1] != '\n') {
+            fwrite("\n", 1, 1, fout);
+        }
+        
+        // 追加新的配置块
+        fwrite(newBlock, 1, strlen(newBlock), fout);
+    }
     
     fclose(fout);
     free(lines);
     return 1;
 }
 
-// 清理SSH配置文件中与指定密钥相关的所有Host配置（保留需要的hosts）
+// 清理SSH配置文件中与指定账号相关的所有Host配置（保留需要的hosts）
+// 根据注释中的邮箱判断配置归属
 int CleanupSSHConfigForKey(const char* keyPath, const char* email, const char* const* keepHosts, int keepHostCount) {
     char userProfile[MAX_PATH];
     if (FAILED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, userProfile))) return 0;
@@ -913,71 +894,71 @@ int CleanupSSHConfigForKey(const char* keyPath, const char* email, const char* c
         keepLine[i] = 1; // 默认保留所有行
     }
 
-    // 查找与指定密钥相关的Host块
-    char keyName[MAX_PATH];
-    const char* lastSlash = strrchr(keyPath, '\\');
-    strncpy(keyName, lastSlash ? lastSlash + 1 : keyPath, MAX_PATH - 1);
-    
+    // 查找与指定邮箱相关的Host配置块
     for (int i = 0; i < lineCount; i++) {
         char* trimmed = lines[i];
         while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
         
-        if (strncmp(trimmed, "Host ", 5) == 0) {
-            // 检查是否包含对应的IdentityFile
-            int hasIdentityFile = 0;
-            int hostEnd = i; // 找到Host块的结束位置
-            for (int j = i + 1; j < lineCount; j++) { // 遍历直到找到下一个Host或文件末尾
-                char* nextLine = lines[j];
-                while (*nextLine == ' ' || *nextLine == '\t') nextLine++;
-                if (strncmp(nextLine, "Host ", 5) == 0) {
-                    // 到达下一个Host块，设置当前Host块的结束位置
-                    hostEnd = j - 1;
-                    break;
-                }
-                if (strncmp(nextLine, "IdentityFile", 12) == 0) {
-                    if (strstr(nextLine, keyName)) {
-                        hasIdentityFile = 1;
-                    }
-                }
-                hostEnd = j; // 更新结束位置
+        // 检查注释行是否匹配邮箱
+        if (strncmp(trimmed, "# Git configuration for ", 24) == 0) {
+            // 提取注释中的邮箱
+            char commentEmail[256];
+            int k = 0;
+            const char* emailStart = trimmed + 24;
+            while (emailStart[k] && emailStart[k] != '\n' && emailStart[k] != '\r' && k < 255) {
+                commentEmail[k] = emailStart[k];
+                k++;
             }
-
-            if (hasIdentityFile) {
-                // 提取Host名称
-                char* hostStart = trimmed + 5;
-                while (*hostStart == ' ' || *hostStart == '\t') hostStart++;
-                char host[HOST_LEN];
-                int k = 0;
-                while (hostStart[k] && hostStart[k] != ' ' && hostStart[k] != '\t' && 
-                       hostStart[k] != '\n' && hostStart[k] != '\r') {
-                    host[k] = hostStart[k];
-                    k++;
-                }
-                host[k] = '\0';
-
-                // 检查这个host是否需要保留
-                int shouldKeep = 0;
-                for (int j = 0; j < keepHostCount; j++) {
-                    if (strcmp(host, keepHosts[j]) == 0) {
-                        shouldKeep = 1;
-                        break;
-                    }
-                }
-
-                if (!shouldKeep) {
-                    // 检查前一行是否是注释，如果是相关的配置注释也一并删除
-                    int deleteStart = i;
-                    if (i > 0) {
-                        char* prevLine = lines[i-1];
-                        while (*prevLine == ' ' || *prevLine == '\t') prevLine++;
-                        if (strncmp(prevLine, "# Git configuration for", 23) == 0) {
-                            deleteStart = i - 1; // 也删除前一行的注释
-                        }
-                    }
+            commentEmail[k] = '\0';
+            
+            // 检查邮箱是否匹配
+            if (strcmp(commentEmail, email) == 0) {
+                // 邮箱匹配，检查下一行的Host
+                if (i + 1 < lineCount) {
+                    char* nextLine = lines[i + 1];
+                    while (*nextLine == ' ' || *nextLine == '\t') nextLine++;
                     
-                    // 标记整个Host块（包括可能的注释）为删除
-                    for (int j = deleteStart; j <= hostEnd && j < lineCount; j++) {
-                        keepLine[j] = 0;
+                    if (strncmp(nextLine, "Host ", 5) == 0) {
+                        // 提取Host名称
+                        char* hostStart = nextLine + 5;
+                        while (*hostStart == ' ' || *hostStart == '\t') hostStart++;
+                        char host[HOST_LEN];
+                        k = 0;
+                        while (hostStart[k] && hostStart[k] != ' ' && hostStart[k] != '\t' && 
+                               hostStart[k] != '\n' && hostStart[k] != '\r') {
+                            host[k] = hostStart[k];
+                            k++;
+                        }
+                        host[k] = '\0';
+                        
+                        // 检查这个host是否需要保留
+                        int shouldKeep = 0;
+                        for (int j = 0; j < keepHostCount; j++) {
+                            if (strcmp(host, keepHosts[j]) == 0) {
+                                shouldKeep = 1;
+                                break;
+                            }
+                        }
+                        
+                        if (!shouldKeep) {
+                            // 找到Host块的结束位置
+                            int blockEnd = i + 1;
+                            for (int j = i + 2; j < lineCount && j < i + 20; j++) {
+                                char* line = lines[j];
+                                while (*line == ' ' || *line == '\t') line++;
+                                
+                                if (strncmp(line, "Host ", 5) == 0 || strncmp(line, "#", 1) == 0) {
+                                    blockEnd = j - 1;
+                                    break;
+                                }
+                                blockEnd = j;
+                            }
+                            
+                            // 标记整个配置块（注释+Host块）为删除
+                            for (int j = i; j <= blockEnd && j < lineCount; j++) {
+                                keepLine[j] = 0;
+                            }
+                        }
                     }
                 }
             }

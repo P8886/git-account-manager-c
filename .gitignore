@@ -1,0 +1,13 @@
+# 编译中间产物
+*.o
+*.obj
+
+# *.exe
+
+# 临时文件
+*.tmp
+*.bak
+
+# IDE 配置
+.vscode/
+.idea/
