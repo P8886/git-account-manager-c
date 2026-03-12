@@ -271,7 +271,7 @@ void AddHostControl(const wchar_t* initialHost) {
     }
 
     // 创建删除按钮 - 使用当前控件索引作为ID
-    HWND hDeleteBtn = CreateWindowW(L"BUTTON", L"–", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
+    HWND hDeleteBtn = CreateWindowW(L"BUTTON", L"–", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 
         inputX + inputWidth - DPI(30), hostY, DPI(26), ctrlH, hMainWnd, (HMENU)(INT_PTR)(ID_HOST_DELETE_PREFIX + hHostControlCount), NULL, NULL);
 
     // 存储控件句柄 - 从第2个控件开始（索引2和3为第2个控件的下拉框和删除按钮）
@@ -703,7 +703,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hHostControlCount = 1; // 初始有一个控件，但不显示删除按钮
 
         // "新增"按钮 (放在第一个下拉框的右侧)
-        hBtnAddHost = CreateWindowW(L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 
+        hBtnAddHost = CreateWindowW(L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 
             inputX + inputWidth - DPI(30), y, DPI(26), ctrlH, hwnd, (HMENU)ID_BTN_ADD_HOST, NULL, NULL);
 
         y += ctrlH + rowGap;
