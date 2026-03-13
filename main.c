@@ -33,6 +33,7 @@
 #define ID_LBL_DETAILS 113
 #define ID_BTN_GENERATE 114
 #define ID_COMBO_HOST 115
+#define ID_LBL_HOST_HINT 116  // SSH Hosts 提示文字
 #define ID_HOST_COMBO_PREFIX 200  // 动态创建的host下拉框ID前缀
 #define ID_HOST_DELETE_PREFIX 300 // 动态创建的host删除按钮ID前缀
 #define ID_BTN_ADD_HOST 400       // 新增host按钮
@@ -40,6 +41,7 @@
 // 全局变量
 HWND hMainWnd;  // 主窗口句柄
 HWND hList, hName, hEmail, hSSH, hHost, hLblHost, hStatus, hBtnSave, hBtnCancel, hBtnDelete, hBtnSwitch, hLblDetails, hBtnGenerate;
+HWND hLblHostHint;  // SSH Hosts 提示文字控件
 HWND hHostControls[20];  // 存储host控件的句柄数组（下拉框和删除按钮配对，最多10对 = 20个句柄）
 int hHostControlCount = 1;  // 当前host控件的数量，默认为1（初始控件）
 HWND hBtnAddHost;  // 新增host按钮
@@ -49,6 +51,7 @@ BOOL isDarkMode = FALSE;
 BOOL g_bIgnoreEditChange = FALSE;
 HBRUSH hBrushDark, hBrushLight, hBrushControlDark;
 HFONT hGlobalFont = NULL; // 全局字体句柄
+HFONT hHintFont = NULL;   // 提示文字字体句柄（较小）
 float g_dpiScale = 1.0f;  // DPI 缩放比例 (2K屏幕通常为 1.25 或 1.5)
 HANDLE g_hMutex = NULL;   // 单实例互斥体句柄
 
@@ -147,9 +150,10 @@ void RepositionLowerControls() {
     int inputWidth = rightWidth - labelWidth - DPI(10);
     
     // 计算host控件区域的总高度
-    // 初始位置：用户名、邮箱、SSH密钥、SSH Hosts标签（4行）+ 提示文本行（额外高度），然后是host控件
+    // 初始位置：用户名、邮箱、SSH密钥（3行）+ SSH Hosts标签 + 提示文本，然后是host控件
     int yBase = DPI(25); // 初始边距
-    int hintLineHeight = DPI(20) + DPI(16) + DPI(4); // SSH Hosts标签行 + 提示文本行 + 间距
+    // SSH Hosts标签(DPI(20)) + 提示文本(DPI(14)) + 提示文本后间距(DPI(4))
+    int hintLineHeight = DPI(20) + DPI(14) + DPI(4);
     int initialCtrlsHeight = 3 * (ctrlH + rowGap) + hintLineHeight; // 用户名、邮箱、SSH密钥（3行）+ SSH Hosts区域
     int hostCtrlsHeight = (ctrlH + rowGap) * hHostControlCount; // 所有host控件的高度
     int totalCtrlsHeight = initialCtrlsHeight + hostCtrlsHeight;
@@ -170,16 +174,21 @@ void RepositionLowerControls() {
     int switchBtnY = buttonsY + ctrlH + rowGap + DPI(4);
     if (hBtnSwitch) SetWindowPos(hBtnSwitch, NULL, rightX, switchBtnY, rightWidth, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
 
-    // 重新定位状态栏
+    // 列表底部与切换按钮底部精确对齐
+    // 切换按钮底部 = switchBtnY + ctrlH
+    // 列表顶部Y = margin = DPI(25)
+    // 列表高度 = 切换按钮底部 - 列表顶部Y
+    int switchBtnBottom = switchBtnY + ctrlH;
+    int listTopY = DPI(25);
+    int listHeight = switchBtnBottom - listTopY;
+    if (hListCtrl) SetWindowPos(hListCtrl, NULL, DPI(25), listTopY, DPI(200), listHeight, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+
+    // 状态栏在切换按钮下方，间距与行间隙一致
+    int statusY = switchBtnBottom + rowGap;  // 使用行间隙(16px)而非固定的8px
     GetClientRect(hMainWnd, &rcClient);
-    int statusY = rcClient.bottom - DPI(26) - DPI(25); // 状态栏高度 + 底部边距
     int statusWidth = rcClient.right - DPI(25) * 2 - ctrlH - DPI(5);
     if (hStatus) SetWindowPos(hStatus, NULL, DPI(25), statusY, statusWidth, DPI(26), SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
     if (hBtnTheme) SetWindowPos(hBtnTheme, NULL, DPI(25) + statusWidth + DPI(5), statusY, ctrlH, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
-
-    // 重新定位列表高度以适应新的布局
-    int listHeight = statusY - DPI(25) - DPI(15); // 从顶部边距到状态栏上方
-    if (hListCtrl) SetWindowPos(hListCtrl, NULL, DPI(25), DPI(25), DPI(200), listHeight, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
     
     // 重新定位第一个host控件和新增按钮
     int browseBtnW = DPI(26);
@@ -209,38 +218,33 @@ void RepositionLowerControls() {
     RedrawWindow(hMainWnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
     UpdateWindow(hMainWnd);  // 强制立即重绘
     
-    // 动态调整窗口高度
-    // 计算所需的最小高度：按钮Y位置 + 两行按钮高度 + 状态栏高度 + 底部边距
-    int requiredHeight = switchBtnY + ctrlH + DPI(8) + DPI(26) + DPI(25) + DPI(15);
-    // 基础高度（无额外host时）
-    int baseHeight = DPI(480);
-    // 每增加一个host，高度增加一行
-    int extraHosts = (hHostControlCount > 1) ? (hHostControlCount - 1) : 0;
-    int newHeight = baseHeight + extraHosts * (ctrlH + rowGap);
+    // 动态调整窗口高度：确保状态栏可见
+    // 计算所需高度 = 状态栏底部 + 底部边距
+    int statusBottom = statusY + DPI(26);  // 状态栏底部
+    int requiredClientHeight = statusBottom + DPI(8);  // 加上底部边距
     
-    // 确保窗口高度足够显示所有内容
-    if (requiredHeight > newHeight) {
-        newHeight = requiredHeight;
-    }
-    
-    // 获取当前窗口位置和大小
     RECT rcWnd;
     GetWindowRect(hMainWnd, &rcWnd);
-    int currentHeight = rcWnd.bottom - rcWnd.top;
+    RECT rcClientNow;
+    GetClientRect(hMainWnd, &rcClientNow);
     
-    // 如果高度变化超过一行，调整窗口大小
-    if (abs(newHeight - currentHeight) > DPI(20)) {
-        SetWindowPos(hMainWnd, NULL, 0, 0, rcWnd.right - rcWnd.left, newHeight, 
-                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOCOPYBITS);
-        // 重新定位状态栏
-        GetClientRect(hMainWnd, &rcClient);
-        statusY = rcClient.bottom - DPI(26) - DPI(25);
-        statusWidth = rcClient.right - DPI(25) * 2 - ctrlH - DPI(5);
-        if (hStatus) SetWindowPos(hStatus, NULL, DPI(25), statusY, statusWidth, DPI(26), SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
-        if (hBtnTheme) SetWindowPos(hBtnTheme, NULL, DPI(25) + statusWidth + DPI(5), statusY, ctrlH, ctrlH, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
-        // 重新定位列表
-        listHeight = statusY - DPI(25) - DPI(15);
-        if (hListCtrl) SetWindowPos(hListCtrl, NULL, DPI(25), DPI(25), DPI(200), listHeight, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
+    // 计算窗口边框高度（标题栏等）
+    int nonClientHeight = (rcWnd.bottom - rcWnd.top) - rcClientNow.bottom;
+    int requiredWindowHeight = requiredClientHeight + nonClientHeight;
+    int currentWindowHeight = rcWnd.bottom - rcWnd.top;
+    
+    // 计算最小窗口高度（基础内容高度）
+    int minWindowHeight = DPI(400);  // 最小高度
+    
+    // 确保计算的高度不小于最小高度
+    if (requiredWindowHeight < minWindowHeight) {
+        requiredWindowHeight = minWindowHeight;
+    }
+    
+    // 如果高度变化超过一行，调整窗口大小（增加或减少）
+    if (abs(requiredWindowHeight - currentWindowHeight) > DPI(20)) {
+        SetWindowPos(hMainWnd, NULL, 0, 0, rcWnd.right - rcWnd.left, requiredWindowHeight, 
+                     SWP_NOMOVE | SWP_NOZORDER);
     }
 }
 
@@ -641,6 +645,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CREATE: {
         // 根据 DPI 缩放创建字体 (基础 18px)
         hGlobalFont = CreateFontW(DPI(18), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+        // 提示文字字体 (较小，14px)
+        hHintFont = CreateFontW(DPI(14), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
         
         hBrushDark = CreateSolidBrush(RGB(32, 32, 32));
         hBrushControlDark = CreateSolidBrush(RGB(50, 50, 50));
@@ -708,10 +714,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // Row 5: SSH Hosts 标签（提示文本换行到下方独立显示）
         CreateWindowW(L"STATIC", L"SSH Hosts:", WS_CHILD | WS_VISIBLE, rightX, y + DPI(4), labelWidth, DPI(20), hwnd, NULL, NULL, NULL);
         
-        // 端口号提示（支持 host:port 格式，默认端口22）- 换行到下方独立显示
+        // 端口号提示（支持 host:port 格式，默认端口22）- 换行到下方独立显示，使用较小字体
         y += DPI(20);  // 为提示文本留出行高
-        CreateWindowW(L"STATIC", L"(支持 host:port)", WS_CHILD | WS_VISIBLE, rightX, y, DPI(110), DPI(16), hwnd, NULL, NULL, NULL);
-        y += DPI(16) + DPI(4);  // 提示文本高度 + 间距
+        hLblHostHint = CreateWindowW(L"STATIC", L"(支持 host:port)", WS_CHILD | WS_VISIBLE, rightX, y, DPI(110), DPI(14), hwnd, (HMENU)ID_LBL_HOST_HINT, NULL, NULL);
+        y += DPI(14) + DPI(4);  // 提示文本高度 + 间距
         
         // 创建第一个host控件（下拉框）- 与SSH密钥下拉框宽度一致
         int hostComboW = inputWidth - DPI(30);
@@ -750,27 +756,29 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
                                                         // 初始定位所有控件
 
-                                                        RepositionLowerControls();        // 状态栏和列表高度：根据窗口客户区大小计算，状态栏贴底
+                                                        // 先创建状态栏和主题按钮（使用临时位置，稍后由 RepositionLowerControls 调整）
         RECT rcClient;
         GetClientRect(hwnd, &rcClient);
-        int clientH = rcClient.bottom;
-        int statusY = clientH - margin - ctrlH;
-        int statusWidth = rcClient.right - margin * 2 - ctrlH - DPI(5); // 留出主题按钮空间
+        int statusWidth = rcClient.right - margin * 2 - ctrlH - DPI(5);
         hStatus = CreateWindowW(L"STATIC", L"Ready", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | WS_BORDER, 
-            margin, statusY, statusWidth, ctrlH, hwnd, (HMENU)ID_STATUS, NULL, NULL);
+            margin, DPI(200), statusWidth, ctrlH, hwnd, (HMENU)ID_STATUS, NULL, NULL);
 
         // 夜间模式切换按钮
         CreateWindowW(L"BUTTON", L"🌙", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
-            margin + statusWidth + DPI(5), statusY, ctrlH, ctrlH, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
+            margin + statusWidth + DPI(5), DPI(200), ctrlH, ctrlH, hwnd, (HMENU)ID_BTN_THEME, NULL, NULL);
 
-        // 列表高度：从顶部边距到状态栏上方
-        int listHeight = statusY - margin - DPI(15);
-        SetWindowPos(hList, NULL, 0, 0, listWidth, listHeight, SWP_NOMOVE | SWP_NOZORDER);
+        // 统一调用 RepositionLowerControls 设置所有控件的最终位置
+        RepositionLowerControls();
 
         // 设置全局字体
         EnumChildWindows(hwnd, SetChildFont, (LPARAM)hGlobalFont);
-
-        // 禁用 EDIT 和 STATIC 控件的视觉主题，让 WM_CTLCOLOREDIT 完全控制颜色
+        
+        // 为提示文字单独设置小字体
+        if (hLblHostHint) {
+            SendMessageW(hLblHostHint, WM_SETFONT, (WPARAM)hHintFont, TRUE);
+        }
+        
+        // 灭用 EDIT 和 STATIC 控件的视觉主题，让 WM_CTLCOLOREDIT 完全控制颜色
         // （参考 ui_gen_key.c 的做法：不依赖视觉主题，自己处理两种模式的颜色）
         MySetWindowTheme(hName, L"", L"");
         MySetWindowTheme(hEmail, L"", L"");
@@ -793,6 +801,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CTLCOLORSTATIC: {
         HDC hdc = (HDC)wParam;
         int id = GetDlgCtrlID((HWND)lParam);
+        
+        // 提示文字控件使用浅灰色
+        if (id == ID_LBL_HOST_HINT) {
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, isDarkMode ? RGB(150, 150, 150) : RGB(128, 128, 128));
+            return (LRESULT)(isDarkMode ? hBrushDark : hBrushLight);
+        }
         
         if (isDarkMode) {
             SetTextColor(hdc, RGB(220, 220, 220));
@@ -995,13 +1010,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         // 更新hosts列表
                         UpdateAccountHosts(&config.accounts[i]);
                         
-                        // 更新SSH配置：先删除该邮箱的所有配置，再重新添加
-                        if (strlen(sshBuf) > 0) {
-                            CleanupSSHConfigForKey(sshBuf, emailBuf, NULL, 0); // 删除所有该邮箱的配置
-                            if (config.accounts[i].host_count > 0) {
-                                AddMultipleHostsToSSHConfig(sshBuf, emailBuf, config.accounts[i].host_list, config.accounts[i].host_count);
-                            }
-                        }
+                        // 不再自动更新 SSH config，等用户切换账号时统一处理
                         
                         break;
                     }
@@ -1032,10 +1041,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     // 更新hosts列表
                     UpdateAccountHosts(acc);
                     
-                    // 为新账户添加SSH配置
-                    if (strlen(sshBuf) > 0 && acc->host_count > 0) {
-                        AddMultipleHostsToSSHConfig(sshBuf, emailBuf, acc->host_list, acc->host_count);
-                    }
+                    // 不再自动添加 SSH config，等用户切换账号时统一处理
                     
                     config.account_count++;
                     ShowMessage(hwnd, L"账户添加成功", L"成功", MB_OK);
@@ -1048,7 +1054,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         else if (id == ID_BTN_DELETE) {
             if (strlen(currentEditID) > 0) {
-                if (ShowMessage(hwnd, L"确定要删除此账户吗？\n\n这将同时删除该账户在SSH config中的所有配置。", L"确认删除", MB_YESNO) == IDYES) {
+                if (ShowMessage(hwnd, L"确定要删除此账户吗？", L"确认删除", MB_YESNO) == IDYES) {
                     int found = -1;
                     for (int i = 0; i < config.account_count; i++) {
                         if (strcmp(config.accounts[i].id, currentEditID) == 0) {
@@ -1057,11 +1063,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         }
                     }
                     if (found != -1) {
-                        // 删除前，清理该账户在SSH config中的所有配置
-                        Account* acc = &config.accounts[found];
-                        if (strlen(acc->ssh_key_path) > 0 && strlen(acc->email) > 0) {
-                            // 传入空的keepHosts列表，表示删除所有该账户的配置
-                            CleanupSSHConfigForKey(acc->ssh_key_path, acc->email, NULL, 0);
+                        // 如果删除的是当前激活的账号，清空 SSH config
+                        if (strcmp(config.accounts[found].id, config.active_id) == 0) {
+                            ClearAllManagedSSHConfig();
+                            config.active_id[0] = 0;
                         }
                         
                         // 从配置数组中移除并移位
@@ -1072,7 +1077,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         SaveConfig(&config);
                         ClearForm();
                         RefreshList();
-                        ShowMessage(hwnd, L"账户已删除，相关SSH配置已清理", L"成功", MB_OK);
+                        UpdateStatus();
+                        ShowMessage(hwnd, L"账户已删除", L"成功", MB_OK);
                     }
                 }
             }
@@ -1082,6 +1088,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (idx != LB_ERR) {
                 int accIdx = SendMessageW(hList, LB_GETITEMDATA, idx, 0);
                 Account* acc = &config.accounts[accIdx];
+                
+                // 先更新 SSH config（清空旧配置，写入当前账号配置）
+                if (strlen(acc->ssh_key_path) > 0 && acc->host_count > 0) {
+                    SwitchAccountSSHConfig(acc->ssh_key_path, acc->host_list, acc->host_count);
+                } else {
+                    // 没有配置 SSH key，清空 SSH config
+                    ClearAllManagedSSHConfig();
+                }
+                
+                // 更新 Git 全局配置
                 if (SetGlobalConfig(acc->name, acc->email, acc->ssh_key_path)) {
                     strcpy(config.active_id, acc->id);
                     SaveConfig(&config);
@@ -1159,10 +1175,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     RegisterClassW(&wc);
 
-    // 窗口大小根据 DPI 缩放 (基础 640x480)
+    // 窗口大小根据 DPI 缩放
+    // 客户区高度：顶部边距25 + 表单控件 + 状态栏 + 底部边距
     HWND hwnd = CreateWindowW(L"GitAccountManagerC", L"Git Account Manager",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
-        CW_USEDEFAULT, CW_USEDEFAULT, DPI(640), DPI(480),
+        CW_USEDEFAULT, CW_USEDEFAULT, DPI(640), DPI(400),
         NULL, NULL, hInstance, NULL);
 
     ShowWindow(hwnd, nCmdShow);

@@ -38,54 +38,41 @@
 
 ### 多账号配置原理
 
-本工具使用 **Host 别名** 机制实现同一 Git 服务的多账号支持。
+本工具采用 **"切换账号时清空重写"** 的策略管理 SSH config。
 
-例如，您有两个 GitHub 账号：
-- 账号A：`userA@example.com`
-- 账号B：`userB@example.com`
+**核心思路**：
+- SSH config 使用标准 Host 名称（如 `github.com`），不带邮箱后缀
+- 切换账号时，**清空整个 SSH config 文件**，只写入当前账号的配置
+- 用户可以直接使用标准 SSH URL（如 `git@github.com:xxx/repo.git`），无需手动修改
 
-配置后，SSH config 文件会生成如下配置：
+**优势**：
+- 无需修改 clone URL，直接复制粘贴即可使用
+- 配置干净，不存在多个账号配置冲突的问题
+
+切换到某账号后，`~/.ssh/config` 文件内容示例：
 
 ```ssh
-# Git configuration for userA@example.com
-Host github.com-userA@example.com
+# Git Account Manager - github.com
+Host github.com
     HostName github.com
     User git
-    IdentityFile ~/.ssh/id_userA
+    IdentityFile ~/.ssh/id_rsa_xxx
     IdentitiesOnly yes
-    PreferredAuthentications publickey
 
-# Git configuration for userB@example.com
-Host github.com-userB@example.com
-    HostName github.com
+# Git Account Manager - gitlab.com
+Host gitlab.com
+    HostName gitlab.com
     User git
-    IdentityFile ~/.ssh/id_userB
+    IdentityFile ~/.ssh/id_rsa_xxx
     IdentitiesOnly yes
-    PreferredAuthentications publickey
 ```
 
-### Clone 仓库时使用别名
+### Clone 仓库
 
-当您需要使用特定账号 clone 仓库时，**需要使用 Host 别名**：
-
-```bash
-# 使用账号A clone
-git clone git@github.com-userA@example.com:username/repo.git
-
-# 使用账号B clone
-git clone git@github.com-userB@example.com:username/repo.git
-```
-
-### 已有仓库切换账号
-
-如果您已经 clone 了仓库，可以修改 `.git/config` 中的 remote URL：
+直接使用标准 SSH URL 即可：
 
 ```bash
-# 查看当前 remote
-git remote -v
-
-# 修改 remote URL 使用特定账号
-git remote set-url origin git@github.com-userA@example.com:username/repo.git
+git clone git@github.com:username/repo.git
 ```
 
 ### 私有部署 Git 平台（非标准端口）
@@ -99,24 +86,35 @@ git remote set-url origin git@github.com-userA@example.com:username/repo.git
 
 **生成的 SSH 配置**：
 ```ssh
-# Git configuration for user@example.com
-Host 47.112.98.200:8223-user@example.com
+# Git Account Manager - 47.112.98.200:8223
+Host 47.112.98.200
     HostName 47.112.98.200
     User git
     Port 8223
     IdentityFile ~/.ssh/id_private
     IdentitiesOnly yes
-    PreferredAuthentications publickey
 ```
 
 **Clone 示例**：
 ```bash
-git clone git@47.112.98.200:8223-user@example.com:group/project.git
+git clone git@47.112.98.200:group/project.git
 ```
 
 > **注意**：端口号必须填写，否则 SSH 将使用默认端口 22，导致连接失败。
 
 ## 🚀 最近更新 (Changelog)
+
+### v1.3.0 - SSH Config 机制重构与 UI 优化
+*   **SSH Config 重大重构**:
+    *   **标准 Host 名称**: SSH config 现在使用标准 Host 名称（如 `github.com`），不再带邮箱后缀。
+    *   **直接使用标准 URL**: 用户可以直接使用 `git@github.com:xxx/repo.git` 克隆仓库，无需手动修改 URL。
+    *   **切换账号时清空重写**: 切换账号时会清空整个 SSH config 文件，只写入当前账号的配置，避免配置冲突。
+*   **UI 优化**:
+    *   **窗口大小可调整**: 窗口支持拖拽调整大小，并设置了最小尺寸限制。
+    *   **窗口高度优化**: 调整默认窗口高度，使右侧表单底部与左侧列表底部对齐，减少空白区域。
+    *   **提示文字样式**: SSH Hosts 提示文字使用较小字体和浅灰色，更加协调。
+*   **代码优化**:
+    *   移除未使用的函数，消除编译警告。
 
 ### v1.2.1 - 细节完善与编码修复
 *   **编码修复**:
