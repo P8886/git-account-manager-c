@@ -176,11 +176,13 @@ void RepositionLowerControls() {
 
     // 列表底部与切换按钮底部精确对齐
     // 切换按钮底部 = switchBtnY + ctrlH
-    // 列表顶部Y = margin = DPI(25)
-    // 列表高度 = 切换按钮底部 - 列表顶部Y
+    // 列表底部与切换按钮底部精确对齐
+    // 列表有 WS_BORDER 边框，边框上下各占约1像素(DPI缩放后约2-3像素)
+    // 列表底部 = 切换按钮底部 - 边框厚度
     int switchBtnBottom = switchBtnY + ctrlH;
     int listTopY = DPI(25);
-    int listHeight = switchBtnBottom - listTopY;
+    int borderAdjust = DPI(5);  // 边框调整值
+    int listHeight = switchBtnBottom - listTopY + borderAdjust;
     if (hListCtrl) SetWindowPos(hListCtrl, NULL, DPI(25), listTopY, DPI(200), listHeight, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_SHOWWINDOW);
 
     // 状态栏在切换按钮下方，间距与行间隙一致

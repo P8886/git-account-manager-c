@@ -724,8 +724,10 @@ int GetHostFromSSHConfig(const char* keyPath, char* outHost, int maxLen) {
 
 // 标记：用于识别由本程序管理的 SSH config 配置块
 #define GAM_MARKER "# Git Account Manager"
+#define PRESERVE_START "# do not delete"
+#define PRESERVE_END "# end do not delete"
 
-// 清空整个 SSH config 文件
+// 清空 SSH config 文件，但保留 # do not delete 标记区域的内容
 // 返回值: 0 失败, 1 成功
 int ClearAllManagedSSHConfig(void) {
     char userProfile[MAX_PATH];
@@ -734,11 +736,55 @@ int ClearAllManagedSSHConfig(void) {
     char sshConfigPath[MAX_PATH];
     snprintf(sshConfigPath, MAX_PATH, "%s\\.ssh\\config", userProfile);
     
-    // 直接清空文件
-    FILE* f = fopen(sshConfigPath, "wb");
-    if (!f) return 0;
-    fclose(f);
+    // 读取现有文件内容
+    FILE* f = fopen(sshConfigPath, "rb");
+    char* preservedContent = NULL;
     
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        long fileSize = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        char* content = (char*)malloc(fileSize + 1);
+        if (content) {
+            fread(content, 1, fileSize, f);
+            content[fileSize] = '\0';
+        }
+        fclose(f);
+        
+        if (content) {
+            // 查找 # do not delete 区域
+            char* start = strstr(content, PRESERVE_START);
+            char* end = strstr(content, PRESERVE_END);
+            
+            if (start != NULL && end != NULL && end > start) {
+                // 提取保留区域（包含开始和结束标记）
+                int preservedLen = (int)(end - start) + strlen(PRESERVE_END);
+                preservedContent = (char*)malloc(preservedLen + 2);
+                if (preservedContent) {
+                    strncpy(preservedContent, start, preservedLen);
+                    preservedContent[preservedLen] = '\n';
+                    preservedContent[preservedLen + 1] = '\0';
+                }
+            }
+            
+            free(content);
+        }
+    }
+    
+    // 清空文件并写回保留内容
+    f = fopen(sshConfigPath, "wb");
+    if (!f) {
+        if (preservedContent) free(preservedContent);
+        return 0;
+    }
+    
+    // 写入保留内容
+    if (preservedContent) {
+        fwrite(preservedContent, 1, strlen(preservedContent), f);
+        free(preservedContent);
+    }
+    
+    fclose(f);
     return 1;
 }
 

@@ -45,9 +45,21 @@
 - 切换账号时，**清空整个 SSH config 文件**，只写入当前账号的配置
 - 用户可以直接使用标准 SSH URL（如 `git@github.com:xxx/repo.git`），无需手动修改
 
+**保留用户配置**：
+如果您在 SSH config 中有需要保留的自定义配置，可以使用 `# do not delete` 标记包裹：
+
+```ssh
+# do not delete
+xxxxx
+# end do not delete
+```
+
+切换账号时，`# do not delete` 到 `# end do not delete` 之间的内容会被保留。
+
 **优势**：
 - 无需修改 clone URL，直接复制粘贴即可使用
 - 配置干净，不存在多个账号配置冲突的问题
+- 支持保留用户自定义的 SSH 配置
 
 切换到某账号后，`~/.ssh/config` 文件内容示例：
 
@@ -103,6 +115,15 @@ git clone git@47.112.98.200:group/project.git
 > **注意**：端口号必须填写，否则 SSH 将使用默认端口 22，导致连接失败。
 
 ## 🚀 最近更新 (Changelog)
+
+### v1.3.1 - SSH Config 保留机制与布局优化
+*   **SSH Config 保留机制**:
+    *   **保留用户配置**: 切换账号时，`# do not delete` 到 `# end do not delete` 之间的内容会被保留。
+    *   **自动备份恢复**: 先备份保留区域，清空文件后写回，再追加当前账号配置。
+*   **布局优化**:
+    *   **左侧列表对齐**: 左侧列表底部与右侧"切换到选中账户"按钮底部精确对齐。
+    *   **状态栏间距**: 状态栏与上方内容间距调整为与行间隙一致 (16px)。
+    *   **动态窗口高度**: 添加/删除 SSH Host 时窗口高度自动调整。
 
 ### v1.3.0 - SSH Config 机制重构与 UI 优化
 *   **SSH Config 重大重构**:
