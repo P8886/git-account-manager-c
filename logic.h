@@ -25,18 +25,30 @@ typedef struct {
     Account accounts[MAX_ACCOUNTS];
     int account_count;
     char active_id[ID_LEN];
+    BOOL show_identity_badge;
+    BOOL show_taskbar_text;
+    BOOL dark_mode;
 } Config;
 
 // 配置操作
 void GetConfigDir(char* buffer, int size);
 void LoadConfig(Config* config);
-void SaveConfig(Config* config);
+int SaveConfig(const Config* config);
 void AutoImportGlobalIdentity(Config* config); // 首次使用时自动导入当前 Git 身份
 
 // Git 操作
 void GetGlobalConfig(char* name, char* email);
+// sshKeyPath 仅为旧调用兼容参数；SSH 身份由受管 SSH config 区域负责。
 int SetGlobalConfig(const char* name, const char* email, const char* sshKeyPath);
 int GetSSHKeys(char keys[][PATH_LEN], int maxKeys);
+
+// 输入验证
+int ValidateSSHPrivateKey(const char* keyPath);
+int ValidateSSHHost(const char* host);
+int ValidateSSHHostList(const char hosts[][HOST_LEN], int hostCount);
+
+// 最近一次逻辑层错误，返回 UTF-8 文本
+const char* GetLogicErrorMessage(void);
 
 // 生成 SSH 密钥
 // name: 密钥名称 (文件名)
@@ -46,7 +58,7 @@ int GetSSHKeys(char keys[][PATH_LEN], int maxKeys);
 // 返回值: 0 失败, 1 成功
 int GenerateSSHKey(const char* name, const char* email, const char* type, char* outPath);
 
-// 生成 SSH 密钥并自动添加到 SSH config
+// 旧版兼容入口：现在只生成密钥，不会提前修改 Git 或 SSH 配置。
 // name: 密钥名称 (文件名)
 // email: 关联邮箱
 // type: 加密类型 (rsa, ed25519)
@@ -61,7 +73,7 @@ int GenerateSSHKeyAndUpdateConfig(const char* name, const char* email, const cha
 // 返回值: 0 失败, 1 成功
 int AddExistingKeyToSSHConfig(const char* keyPath, const char* email, const char* host);
 
-// 清理SSH配置文件中与指定密钥相关的所有Host配置（保留需要的hosts）
+// 旧版兼容入口：清理本程序管理的 SSH 配置区域。
 // keyPath: SSH 密钥的完整路径
 // email: 关联邮箱 (新版本不再使用，保留参数兼容性)
 // keepHosts: 需要保留的hosts数组 (新版本不再使用)
@@ -69,11 +81,11 @@ int AddExistingKeyToSSHConfig(const char* keyPath, const char* email, const char
 // 返回值: 0 失败, 1 成功
 int CleanupSSHConfigForKey(const char* keyPath, const char* email, const char* const* keepHosts, int keepHostCount);
 
-// 清空 SSH config 中所有由本程序管理的配置
+// 清空 SSH config 中由本程序管理的区域，保留所有用户自定义内容。
 // 返回值: 0 失败, 1 成功
 int ClearAllManagedSSHConfig(void);
 
-// 切换账号：清空旧配置，写入新账号的 SSH config
+// 切换账号：替换本程序管理的区域并写入新账号 SSH 配置。
 // keyPath: SSH 密钥的完整路径
 // hosts: Git服务Host数组
 // hostCount: Host数量
@@ -94,5 +106,9 @@ int AddMultipleHostsToSSHConfig(const char* keyPath, const char* email, const ch
 // maxLen: outHost 缓冲区大小
 // 返回值: 0 失败, 1 成功
 int GetHostFromSSHConfig(const char* keyPath, char* outHost, int maxLen);
+
+// 原子应用账户身份与 SSH 配置；失败时回滚已写文件
+int ApplyAccountSettings(const char* name, const char* email,
+    const char* sshKeyPath, const char hosts[][HOST_LEN], int hostCount);
 
 #endif
