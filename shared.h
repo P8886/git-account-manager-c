@@ -21,6 +21,7 @@ extern BOOL isDarkMode;
 extern HBRUSH hBrushDark;
 extern HBRUSH hBrushControlDark;
 extern HBRUSH hBrushLight;
+extern HBRUSH hBrushControlLight;
 extern HFONT hGlobalFont;
 extern float g_dpiScale; // DPI 缩放比例
 
@@ -31,5 +32,10 @@ int DPI(int value);
 wchar_t* U8ToW(const char* utf8);
 char* WToU8(const wchar_t* wstr);
 void SetTitleBarTheme(HWND hwnd, BOOL dark);
+void MySetWindowTheme(HWND hwnd, LPCWSTR subAppName, LPCWSTR subIdList);
 int ShowMessage(HWND owner, LPCWSTR text, LPCWSTR title, UINT type);
 BOOL CALLBACK SetChildFont(HWND hwndChild, LPARAM lParam);
+void SetComboBoxClosedHeight(HWND combo, int targetHeight);
+void EnableModernComboBox(HWND combo);
+void EnableVerticallyCenteredEdit(HWND edit);
+void CenterEditText(HWND edit);
