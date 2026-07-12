@@ -1,107 +1,125 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal EnableExtensions EnableDelayedExpansion
 
-:: 尝试关闭正在运行的进程
-taskkill /F /IM GitAccountManager.exe >nul 2>&1
+set "PROJECT_DIR=%~dp0"
+set "FALLBACK_BIN=D:\_App\_Code\TDM-GCC-64\bin"
+set "OUTPUT=GitAccountManager.exe"
+set "SIZE_LIMIT=5242880"
+set "OBJECTS=main.o logic.o ui_draw.o ui_gen_key.o ui_taskbar.o ui_tray.o resource.o"
+set "CFLAGS=-std=c11 -Os -flto -Wall -Wextra -ffunction-sections"
+set "LDFLAGS=-mwindows -Os -flto -s -Wl,--gc-sections"
+set "LIBS=-luser32 -lgdi32 -lcomdlg32 -lshell32 -ldwmapi"
 
-:: 检查 GCC
-gcc --version >nul 2>&1
-if %errorlevel% equ 0 (
-    echo Compiling with GCC...
-    
-    :: Compile main.c to avoid memory issues
-    echo Compiling main.c...
-    gcc -c main.c -o main.o -Os -Wall
-    if %errorlevel% neq 0 (
-        echo Failed to compile main.c
-        pause
-        exit /b 1
-    )
-    
-    echo Compiling logic.c...
-    gcc -c logic.c -o logic.o -Os -Wall
-    if %errorlevel% neq 0 (
-        echo Failed to compile logic.c
-        pause
-        exit /b 1
-    )
-    
-    echo Compiling ui_draw.c...
-    gcc -c ui_draw.c -o ui_draw.o -Os -Wall
-    if %errorlevel% neq 0 (
-        echo Failed to compile ui_draw.c
-        pause
-        exit /b 1
-    )
-    
-    echo Compiling ui_gen_key.c...
-    gcc -c ui_gen_key.c -o ui_gen_key.o -Os -Wall
-    if %errorlevel% neq 0 (
-        echo Failed to compile ui_gen_key.c
-        pause
-        exit /b 1
-    )
-    
-    :: Compile resource file
-    echo Compiling resources...
-    windres resource.rc -o resource.o
-    if %errorlevel% neq 0 (
-        echo Failed to compile resources.
-        pause
-        exit /b 1
-    )
-
-    :: Link executable
-    echo Linking executable...
-    gcc main.o logic.o ui_draw.o ui_gen_key.o resource.o -o GitAccountManager.exe -mwindows -Os -s -Wl,--gc-sections -luser32 -lgdi32 -lcomdlg32 -lshell32 -ldwmapi
-    
-    :: Clean up temporary object files
-    if exist main.o del main.o
-    if exist logic.o del logic.o
-    if exist ui_draw.o del ui_draw.o
-    if exist ui_gen_key.o del ui_gen_key.o
-    if exist resource.o del resource.o
-    
-    goto :success
+pushd "%PROJECT_DIR%" >nul || (
+    echo Error: cannot enter project directory.
+    exit /b 1
 )
 
-:: Check for MSVC
-cl >nul 2>&1
-if %errorlevel% equ 0 (
-    echo Compiling with MSVC...
-    
-    :: Compile resources
-    rc /fo resource.res resource.rc
-    if %errorlevel% neq 0 (
-        echo Failed to compile resources.
-        pause
-        exit /b 1
-    )
+call :find_tools
+if errorlevel 1 goto :fail
 
-    :: Compile main program
-    cl main.c logic.c ui_draw.c ui_gen_key.c resource.res /Fe:GitAccountManager.exe /O1 /MD /link /SUBSYSTEM:WINDOWS user32.lib kernel32.lib gdi32.lib comdlg32.lib shell32.lib dwmapi.lib /OPT:REF /OPT:ICF
-    
-    :: Clean up resource res files
-    if exist resource.res del resource.res
-    if exist main.obj del main.obj
-    if exist logic.obj del logic.obj
-    if exist ui_draw.obj del ui_draw.obj
-    if exist ui_gen_key.obj del ui_gen_key.obj
-    
-    goto :success
+call :clean
+if errorlevel 1 goto :fail
+
+echo Compiler: "%GCC%"
+echo Resource compiler: "%WINDRES%"
+
+call :compile main.c main.o
+if errorlevel 1 goto :fail
+call :compile logic.c logic.o
+if errorlevel 1 goto :fail
+call :compile ui_draw.c ui_draw.o
+if errorlevel 1 goto :fail
+call :compile ui_gen_key.c ui_gen_key.o
+if errorlevel 1 goto :fail
+call :compile ui_taskbar.c ui_taskbar.o
+if errorlevel 1 goto :fail
+call :compile ui_tray.c ui_tray.o
+if errorlevel 1 goto :fail
+
+echo Compiling resource.rc...
+"%WINDRES%" resource.rc -O coff -o resource.o
+if errorlevel 1 (
+    echo Error: resource compilation failed.
+    goto :fail
 )
 
-echo Error: Neither GCC nor MSVC found. Please install a compiler.
-pause
+echo Linking %OUTPUT%...
+"%GCC%" %OBJECTS% -o "%OUTPUT%" %LDFLAGS% %LIBS%
+if errorlevel 1 (
+    echo Error: linking failed.
+    goto :fail
+)
+
+if not exist "%OUTPUT%" (
+    echo Error: linker did not create %OUTPUT%.
+    goto :fail
+)
+
+for %%I in ("%OUTPUT%") do set "OUTPUT_SIZE=%%~zI"
+if !OUTPUT_SIZE! GTR %SIZE_LIMIT% (
+    echo Error: %OUTPUT% is !OUTPUT_SIZE! bytes; limit is %SIZE_LIMIT% bytes.
+    del /q "%OUTPUT%" >nul 2>&1
+    goto :fail
+)
+
+call :clean_objects
+echo Build successful: %OUTPUT% ^(!OUTPUT_SIZE! bytes^).
+popd
+exit /b 0
+
+:find_tools
+set "GCC="
+set "WINDRES="
+
+for %%I in (gcc.exe) do set "GCC=%%~$PATH:I"
+for %%I in (windres.exe) do set "WINDRES=%%~$PATH:I"
+
+if defined GCC if not defined WINDRES (
+    for %%I in ("!GCC!") do set "GCC_BIN=%%~dpI"
+    if exist "!GCC_BIN!windres.exe" set "WINDRES=!GCC_BIN!windres.exe"
+)
+
+if not defined GCC if exist "%FALLBACK_BIN%\gcc.exe" (
+    set "GCC=%FALLBACK_BIN%\gcc.exe"
+)
+if not defined WINDRES if exist "%FALLBACK_BIN%\windres.exe" (
+    set "WINDRES=%FALLBACK_BIN%\windres.exe"
+)
+
+if not defined GCC (
+    echo Error: gcc.exe was not found on PATH or in %FALLBACK_BIN%.
+    exit /b 1
+)
+if not defined WINDRES (
+    echo Error: windres.exe was not found on PATH or in %FALLBACK_BIN%.
+    exit /b 1
+)
+exit /b 0
+
+:compile
+echo Compiling %~1...
+"%GCC%" %CFLAGS% -c "%~1" -o "%~2"
+if errorlevel 1 (
+    echo Error: failed to compile %~1.
+    exit /b 1
+)
+exit /b 0
+
+:clean
+call :clean_objects
+if exist "%OUTPUT%" del /q "%OUTPUT%" >nul 2>&1
+if exist "%OUTPUT%" (
+    echo Error: cannot remove the previous %OUTPUT%.
+    exit /b 1
+)
+exit /b 0
+
+:clean_objects
+for %%I in (%OBJECTS%) do if exist "%%I" del /q "%%I" >nul 2>&1
+exit /b 0
+
+:fail
+call :clean_objects
+popd
 exit /b 1
-
-:success
-if exist GitAccountManager.exe (
-    echo Build successful!
-    echo GitAccountManager.exe has been created successfully.
-    echo.
-    pause
-) else (
-    echo Build failed.
-    pause
-)

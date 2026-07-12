@@ -1,6 +1,36 @@
 #include <windows.h>
+#include "resource.h"
 
-// Application Icon
-101 ICON "git-account-manager.ico"
+APP_ICON_ID ICON "git-account-manager.ico"
+1 RT_MANIFEST "GitManager.exe.manifest"
 
-1 24 "GitManager.exe.manifest"
+1 VERSIONINFO
+ FILEVERSION APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,APP_VERSION_BUILD
+ PRODUCTVERSION APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,APP_VERSION_BUILD
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+ FILEFLAGS VS_FF_DEBUG
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "Git Account Manager\0"
+            VALUE "FileVersion", "1.4.0.0\0"
+            VALUE "InternalName", "GitAccountManager\0"
+            VALUE "OriginalFilename", "GitAccountManager.exe\0"
+            VALUE "ProductName", "Git Account Manager\0"
+            VALUE "ProductVersion", "1.4.0.0\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
