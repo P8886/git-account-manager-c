@@ -491,7 +491,8 @@ void LayoutMainWindow(BOOL resizeToContent) {
     int fieldWidth = (rightWidth - fieldGap) / 2;
     int sshTitleY = fieldY + ctrlH + DPI(24);
     int keyLabelY = sshTitleY + DPI(26);
-    int keyY = keyLabelY + DPI(20);
+    int keyButtonY = keyLabelY - DPI(7);
+    int keyY = keyButtonY + ctrlH + DPI(8);
     int hostLabelY = keyY + ctrlH + DPI(20);
     int hostY = hostLabelY + DPI(20);
     int actionsY = hostY + hostRow * hHostControlCount + DPI(8);
@@ -532,7 +533,7 @@ void LayoutMainWindow(BOOL resizeToContent) {
 
     SetWindowPos(hSectionSSH, NULL, rightX, sshTitleY, rightWidth, DPI(22), SWP_NOZORDER);
     SetWindowPos(hLblSSH, NULL, rightX, keyLabelY, rightWidth - DPI(100), DPI(18), SWP_NOZORDER);
-    SetWindowPos(hBtnGenerate, NULL, rightX + rightWidth - DPI(96), keyLabelY - DPI(7), DPI(96), ctrlH, SWP_NOZORDER);
+    SetWindowPos(hBtnGenerate, NULL, rightX + rightWidth - DPI(96), keyButtonY, DPI(96), ctrlH, SWP_NOZORDER);
     SetWindowPos(hSSH, NULL, rightX, keyY, rightWidth - smallButtonW - DPI(8), DPI(180), SWP_NOZORDER);
     SetWindowPos(GetDlgItem(hMainWnd, ID_BTN_BROWSE), NULL,
                  rightX + rightWidth - smallButtonW, keyY, smallButtonW, ctrlH, SWP_NOZORDER);

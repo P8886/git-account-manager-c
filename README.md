@@ -1,202 +1,82 @@
-# Git Account Manager (C Version)
+# Git Account Manager
 
-这是一个使用 C 语言 (Win32 API) 重写的轻量级 Git 账户管理工具。
-旨在解决原 Go 版本打包体积过大 (20MB+) 的问题，同时保持完全的功能兼容性。
+一个纯 Win32 C 编写的轻量 Git 多账户切换工具。无需安装运行时，发布物只有一个 `GitAccountManager.exe`。
 
-## ✨ 核心特性
+## 功能
 
-*   **极致轻量**: 经过极致编译优化，单文件体积极小 (原 Go 版本约 24MB)。
-*   **原生性能**: 基于 Win32 API 开发，启动瞬间完成，资源占用极低。
-*   **独立配置**: 使用独立配置文件 (`%APPDATA%\git-account-manager-c\accounts.json`)，与 Go 版本分离。
-*   **智能初始化**: 首次启动时自动检测并导入当前 Git 全局身份，无需手动添加。
-*   **高分屏支持**: 自动适配 2K/4K 高 DPI 屏幕，字体和控件自动缩放。
-*   **界面美化**: 
-    *   原生 Windows 控件风格，布局整洁。
-    *   **夜间模式**: 支持一键切换深色主题 (Sun/Moon 图标切换)，保护视力。
-    *   **字体优化**: 全面适配 `Microsoft YaHei UI`，统一 18px 字号，解决中文显示问题。
-    *   **细节打磨**: 统一控件高度，优化对齐，解决状态栏重影问题。
-*   **SSH 管理**:
-    *   **自动扫描**: 启动时自动扫描 `~/.ssh/` 目录下的私钥。
-    *   **可视化选择**: 采用下拉组合框 (ComboBox) 展示 SSH Key，支持超长路径完整显示。
-    *   **密钥生成**: 内置 SSH 密钥生成工具 (Ed25519/RSA)。
-*   **多账号隔离**:
-    *   使用 Host 别名机制，支持同一 Git 服务（如 github.com）配置多个账号。
-    *   Host 别名格式：`<host>-<email>`（如 `github.com-user@example.com`）。
-*   **中文支持**: 全中文界面及源代码注释，便于二次开发。
+- 保存、编辑和删除最多 50 个 Git 账户。
+- 一次切换全局 `user.name`、`user.email` 与对应的 SSH 配置。
+- 扫描 `~/.ssh` 中真实可读的 OpenSSH / PEM 私钥，过滤公钥和普通文件。
+- 生成 Ed25519 或 RSA 密钥，并把公钥复制到剪贴板。
+- 为一个账户配置最多 10 个 SSH Host，支持：
+  - 域名或 IPv4，例如 `github.com`
+  - 非标准端口，例如 `git.example.com:2222`
+  - IPv6，例如 `[2001:db8::1]:2222`
+- 浅色/深色现代界面，主题设置自动保存。
+- 可开启与程序图标一致的账户托盘图标：左键恢复主窗口，悬停显示完整用户名与邮箱，右键菜单可切换任务栏白字或仅保留图标。
+- 可选在 Windows 任务栏内常驻白色身份文字：`当前全局 Git 账号：用户名`。
 
-## ⚠️ 环境要求
+## SSH 配置安全策略
 
-*   **Git 版本**: 2.0+ （推荐 2.10+）
-*   **OpenSSH 版本**: 6.0+
-*   **操作系统**: Windows 7/8/10/11
-
-> **关于 Host 别名中的 `@` 符号**: 
-> SSH config 中 Host 别名支持使用 `@` 符号。经测试，Git 2.0+ 和 OpenSSH 6.0+ 均可正常解析。
-> 如果您使用的是极老旧的 Git 版本（< 2.0），可能会出现解析问题，建议升级到最新版本。
-
-## 📖 使用说明
-
-### 多账号配置原理
-
-本工具采用 **"切换账号时清空重写"** 的策略管理 SSH config。
-
-**核心思路**：
-- SSH config 使用标准 Host 名称（如 `github.com`），不带邮箱后缀
-- 切换账号时，**清空整个 SSH config 文件**，只写入当前账号的配置
-- 用户可以直接使用标准 SSH URL（如 `git@github.com:xxx/repo.git`），无需手动修改
-
-**保留用户配置**：
-如果您在 SSH config 中有需要保留的自定义配置，可以使用 `# do not delete` 标记包裹：
+程序只维护 `~/.ssh/config` 中带以下边界标记的区域：
 
 ```ssh
-# do not delete
-xxxxx
-# end do not delete
-```
-
-切换账号时，`# do not delete` 到 `# end do not delete` 之间的内容会被保留。
-
-**优势**：
-- 无需修改 clone URL，直接复制粘贴即可使用
-- 配置干净，不存在多个账号配置冲突的问题
-- 支持保留用户自定义的 SSH 配置
-
-切换到某账号后，`~/.ssh/config` 文件内容示例：
-
-```ssh
-# Git Account Manager - github.com
+# >>> Git Account Manager >>>
+# 此区域由 Git Account Manager 自动维护，请在区域外编辑自定义配置。
 Host github.com
     HostName github.com
     User git
-    IdentityFile ~/.ssh/id_rsa_xxx
+    IdentityFile "C:/Users/you/.ssh/id_github"
     IdentitiesOnly yes
-
-# Git Account Manager - gitlab.com
-Host gitlab.com
-    HostName gitlab.com
-    User git
-    IdentityFile ~/.ssh/id_rsa_xxx
-    IdentitiesOnly yes
+# <<< Git Account Manager <<<
 ```
 
-### Clone 仓库
+切换账户时只替换这个区域，区域外的公司 Host、跳板机、代理和其它自定义配置会原样保留。旧版本生成的 `# Git Account Manager - ...` 配置块会在首次切换时迁移；不再需要 `# do not delete` 标记。
 
-直接使用标准 SSH URL 即可：
+Git 与 SSH 配置先完整校验，再通过临时文件原子替换。任一步写入失败时，已经写入的 Git 配置会回滚，界面也不会把账户标记为切换成功。
 
-```bash
-git clone git@github.com:username/repo.git
+## 使用
+
+1. 填写用户名和邮箱。
+2. 从下拉框选择私钥，或点击“生成新密钥”。
+3. 填写需要使用该密钥的 SSH Host。
+4. 保存账户。
+5. 从左侧选择账户，点击“切换到选中账户”。
+6. 需要常驻提醒时，开启“任务栏提醒”。右键托盘图标可勾选“在任务栏显示账号文字”；取消勾选后只保留图标与完整身份悬停提示。
+
+开启任务栏提醒后，点击主窗口右上角关闭只会隐藏窗口，后台提醒继续运行；再次启动程序或左键点击托盘图标会恢复窗口。需要彻底结束进程时，使用托盘右键菜单中的“退出”。
+
+任务栏身份文字不接收焦点，鼠标操作会穿透给任务栏；Explorer 重启或显示设置改变后会自动重新定位，并会避开紧邻通知区域的已有工具栏。它显示的是 **Git 全局身份**，如果某个仓库在 `.git/config` 中设置了本地 `user.name` 或 `user.email`，本地设置仍会覆盖全局身份。
+
+## 配置位置
+
+| 内容 | 路径 |
+|---|---|
+| 账户与界面设置 | `%APPDATA%\git-account-manager-c\accounts.json` |
+| Git 全局身份 | `%USERPROFILE%\.gitconfig` |
+| 程序管理的 SSH Host | `%USERPROFILE%\.ssh\config` 中的标记区域 |
+
+## 构建与测试
+
+要求 Windows 10/11、Git/OpenSSH，以及 MinGW-w64 GCC。项目会优先使用 `PATH` 中的 `gcc` 和 `windres`。
+
+```bat
+test.bat
+build.bat
 ```
 
-### 私有部署 Git 平台（非标准端口）
+`test.bat` 在临时目录运行隔离测试，不读取或修改真实的 `.gitconfig`、`.ssh/config` 和账户配置。测试覆盖 JSON 往返、大型 Git 配置保全、SSH 自定义块保全、Host/端口校验、外部及中文密钥路径、密钥生成，以及 Git/SSH 联合切换失败回滚。
 
-对于私有部署的 Git 平台（如自建 GitLab、Gitea 等），如果使用非标准 SSH 端口，请在 SSH Hosts 字段中填写 `主机:端口` 格式：
+`build.bat` 会检查每个编译和链接步骤，并强制最终 EXE 不得超过 **5,242,880 字节（5 MiB）**。当前 v1.4.0 发布构建为 **175,616 字节（约 172 KiB）**，仍只依赖 Windows 系统 DLL。
 
-**填写示例**：
-- `47.112.98.200:8223`
-- `git.company.com:2222`
-- `mygitlab.local:2022`
+## 主要文件
 
-**生成的 SSH 配置**：
-```ssh
-# Git Account Manager - 47.112.98.200:8223
-Host 47.112.98.200
-    HostName 47.112.98.200
-    User git
-    Port 8223
-    IdentityFile ~/.ssh/id_private
-    IdentitiesOnly yes
-```
-
-**Clone 示例**：
-```bash
-git clone git@47.112.98.200:group/project.git
-```
-
-> **注意**：端口号必须填写，否则 SSH 将使用默认端口 22，导致连接失败。
-
-## 🚀 最近更新 (Changelog)
-
-### v1.3.1 - SSH Config 保留机制与布局优化
-*   **SSH Config 保留机制**:
-    *   **保留用户配置**: 切换账号时，`# do not delete` 到 `# end do not delete` 之间的内容会被保留。
-    *   **自动备份恢复**: 先备份保留区域，清空文件后写回，再追加当前账号配置。
-*   **布局优化**:
-    *   **左侧列表对齐**: 左侧列表底部与右侧"切换到选中账户"按钮底部精确对齐。
-    *   **状态栏间距**: 状态栏与上方内容间距调整为与行间隙一致 (16px)。
-    *   **动态窗口高度**: 添加/删除 SSH Host 时窗口高度自动调整。
-
-### v1.3.0 - SSH Config 机制重构与 UI 优化
-*   **SSH Config 重大重构**:
-    *   **标准 Host 名称**: SSH config 现在使用标准 Host 名称（如 `github.com`），不再带邮箱后缀。
-    *   **直接使用标准 URL**: 用户可以直接使用 `git@github.com:xxx/repo.git` 克隆仓库，无需手动修改 URL。
-    *   **切换账号时清空重写**: 切换账号时会清空整个 SSH config 文件，只写入当前账号的配置，避免配置冲突。
-*   **UI 优化**:
-    *   **窗口大小可调整**: 窗口支持拖拽调整大小，并设置了最小尺寸限制。
-    *   **窗口高度优化**: 调整默认窗口高度，使右侧表单底部与左侧列表底部对齐，减少空白区域。
-    *   **提示文字样式**: SSH Hosts 提示文字使用较小字体和浅灰色，更加协调。
-*   **代码优化**:
-    *   移除未使用的函数，消除编译警告。
-
-### v1.2.1 - 细节完善与编码修复
-*   **编码修复**:
-    *   **彻底解决乱码**: 强制 Git 命令输出 UTF-8 编码，彻底解决了状态栏中文名乱码和显示截断的问题 (修复了 `swprintf` 格式化错误)。
-*   **UI 微调**:
-    *   **高度统一**: 进一步微调了下拉框高度 (24px)，与输入框更加匹配。
-    *   **图标修复**: 修复了太阳图标在切换后变黑的问题，并略微放大了图标尺寸以提升辨识度。
-*   **构建优化**: 优化 `build.bat`，在编译前自动清理残留进程，避免文件占用错误。
-
-### v1.2.0 - UI 细节打磨与编译优化
-*   **布局优化**: 
-    *   SSH Key 区域改为双行布局，解决长路径显示不全的问题。
-    *   统一所有按钮、输入框和下拉框的视觉高度，界面更加整齐划一。
-*   **视觉升级**: 
-    *   主题切换按钮采用图形化图标 (☀️/🌙)，并优化了图标颜色。
-    *   修复了白色主题下状态栏文字重叠的 Bug。
-*   **编译优化**: 
-    *   新增 GCC 极限体积优化参数 (`-Os -s -ffunction-sections` 等)，进一步缩减体积。
-    *   集成应用图标 (`.ico`) 资源。
-*   **代码维护**: 源代码注释全量中文化，新增 `ui_draw` 和 `ui_gen_key` 模块分离 UI 逻辑。
-
-### v1.1.0 - UI 重构与体验优化
-*   **界面重构**: 引入 GroupBox 分组布局，优化控件间距，视觉更清爽。
-*   **交互升级**: SSH Key 输入框升级为下拉组合框 (ComboBox)，支持自动扫描和手动输入。
-*   **体积优化**: 优化编译参数 (`-Os -s`) 和代码结构，体积进一步压缩至 ~180KB。
-*   **细节修复**: 修复了部分字体渲染问题，优化了夜间模式的配色细节。
-
-### v1.0.0 - 初始发布 (Initial Release)
-*   **C 语言重写**: 完整复刻 Go 版本核心逻辑。
-*   **功能实现**:
-    *   多账户增删改查。
-    *   一键切换全局 Git 用户名、邮箱和 SSH Key。
-    *   解决 `system()` 调用导致的黑框问题 (使用 `CreateProcess`)。
-    *   轻量级 JSON 解析器 (无第三方依赖)。
-
-## 🛠️ 构建指南
-
-项目自带自动编译脚本，支持 GCC (MinGW/TDM-GCC)。
-
-### 1. 环境配置 (如果打包报错)
-如果您运行 `build.bat` 时出现 `Error: Neither GCC nor MSVC found`，请按照以下步骤安装编译器：
-
-*   **推荐方案 (TDM-GCC)**:
-1.  访问 [TDM-GCC 官网](https://jmeubank.github.io/tdm-gcc/) 下载安装包。
-2.  运行安装程序，点击 "Create"。
-3.  选择 "MinGW-w64/TDM64" 版本。
-4.  **重要**: 在安装选项中，务必勾选 **"Add to PATH"** (添加到系统环境变量)。
-5.  安装完成后，**重启电脑**或重新打开命令行窗口。
-
-### 2. 构建/打包步骤
-1.  双击运行项目目录下的 `build.bat`。
-2.  脚本会自动检测编译器 (GCC) 并开始编译。
-3.  编译成功后，会在同级目录下生成 `GitAccountManager.exe`。
-4.  这就是最终的可执行文件，您可以直接发送给其他人使用 (无需安装依赖)。
-
-## 📂 目录结构
-
-*   `main.c`: 主程序入口，负责窗口创建、消息循环及主界面布局。
-*   `logic.c` / `logic.h`: 核心业务逻辑（Git 配置读写、JSON 解析、命令执行）。
-*   `ui_draw.c` / `ui_draw.h`: 自定义 UI 绘制逻辑（自绘按钮、图标、配色方案）。
-*   `ui_gen_key.c` / `ui_gen_key.h`: SSH 密钥生成对话框的 UI 与逻辑。
-*   `shared.h`: 全局常量、宏定义及公共数据结构。
-*   `resource.rc`: Windows 资源文件（应用图标等）。
-*   `build.bat`: 自动构建脚本。
+| 文件 | 职责 |
+|---|---|
+| `main.c` | 主窗口、账户交互、主题与切换流程 |
+| `logic.c/.h` | 配置解析、Git/SSH 原子写入、校验与密钥生成 |
+| `ui_draw.c/.h` | 现代配色、按钮、账户列表与身份卡绘制 |
+| `ui_gen_key.c/.h` | SSH 密钥生成窗口与公钥复制 |
+| `ui_taskbar.c/.h` | Windows 任务栏内的全局身份文字 |
+| `ui_tray.c/.h` | 托盘图标、完整身份提示与右键菜单 |
+| `tests/test_logic.c` | 隔离逻辑与回滚测试 |
