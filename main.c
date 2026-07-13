@@ -78,6 +78,7 @@ float g_dpiScale = 1.0f;  // DPI 缩放比例 (2K屏幕通常为 1.25 或 1.5)
 HANDLE g_hMutex = NULL;   // 单实例互斥体句柄
 TaskbarIdentity g_taskbarIdentity;
 TrayIdentity g_trayIdentity;
+BOOL g_exitRequested = FALSE;
 wchar_t g_identityTitle[512] = L"Git 全局身份";
 wchar_t g_identityDetail[512] = L"未配置";
 char g_globalName[NAME_LEN] = "";
@@ -1591,6 +1592,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
                 ApplyTaskbarReminderState(hwnd);
             } else if (command == TRAY_MENU_EXIT) {
+                g_exitRequested = TRUE;
                 PostMessageW(hwnd, WM_CLOSE, 0, 0);
             }
         }
@@ -1619,6 +1621,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         FillRect(hdc, &rc, isDarkMode ? hBrushDark : hBrushLight);
         return 1;
     }
+    case WM_CLOSE:
+        if (config.show_identity_badge && !g_exitRequested) {
+            ShowWindow(hwnd, SW_HIDE);
+            return 0;
+        }
+        DestroyWindow(hwnd);
+        return 0;
+
     case WM_DESTROY:
         KillTimer(hwnd, ID_TIMER_IDENTITY);
         KillTimer(hwnd, ID_TIMER_TASKBAR);
@@ -1660,6 +1670,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             // 如果窗口最小化，恢复它
             if (IsIconic(hExistingWnd)) {
                 ShowWindow(hExistingWnd, SW_RESTORE);
+            } else if (!IsWindowVisible(hExistingWnd)) {
+                ShowWindow(hExistingWnd, SW_SHOW);
             }
             // 激活窗口
             SetForegroundWindow(hExistingWnd);
