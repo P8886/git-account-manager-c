@@ -1417,17 +1417,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             strncpy(candidate.ssh_key_path, sshBuf, sizeof(candidate.ssh_key_path) - 1);
             candidate.ssh_key_path[sizeof(candidate.ssh_key_path) - 1] = 0;
             if (!UpdateAccountHosts(&candidate)) break;
-            if (sshBuf[0] && candidate.host_count == 0) {
-                ShowMessage(hwnd, L"配置 SSH 私钥时至少需要一个 Host", L"缺少 SSH Host", MB_OK);
-                break;
-            }
 
             if (editIndex >= 0) {
-                if (strcmp(updated.active_id, candidate.id) == 0 &&
-                    memcmp(&candidate, &updated.accounts[editIndex], sizeof(candidate)) != 0) {
-                    updated.active_id[0] = 0;
+                if (!ApplyAccountSettings(candidate.name, candidate.email,
+                        candidate.ssh_key_path,
+                        (const char (*)[HOST_LEN])candidate.host_list,
+                        candidate.host_count)) {
+                    wchar_t reason[512] = L"无法应用账户改动，账户未更新";
+                    const char* logicError = GetLogicErrorMessage();
+                    if (logicError[0]) U8ToWBuffer(logicError, reason, 512);
+                    ShowMessage(hwnd, reason, L"更新失败", MB_OK);
+                    break;
                 }
                 updated.accounts[editIndex] = candidate;
+                strncpy(updated.active_id, candidate.id, sizeof(updated.active_id) - 1);
+                updated.active_id[sizeof(updated.active_id) - 1] = 0;
             } else {
                 FILETIME now;
                 GetSystemTimeAsFileTime(&now);
@@ -1445,8 +1449,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             g_configLoadFailed = FALSE;
             ClearForm();
             RefreshList();
+            UpdateStatus();
             ShowMessage(hwnd, editIndex >= 0
-                ? L"账户已更新；如需应用改动，请重新切换该账户"
+                ? L"账户已更新并切换"
                 : L"账户已添加", L"保存成功", MB_OK);
         }
         else if (id == ID_BTN_DELETE) {

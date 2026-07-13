@@ -1835,7 +1835,7 @@ int ApplyAccountSettings(const char* name, const char* email,
     ClearLogicError();
     if (!ValidateIdentity(name, email)) return 0;
     if (sshKeyPath && sshKeyPath[0]) {
-        if (!ValidateSSHPrivateKey(sshKeyPath) || hostCount <= 0 ||
+        if (!ValidateSSHPrivateKey(sshKeyPath) ||
             !ValidateSSHHostList(hosts, hostCount)) return 0;
     }
 

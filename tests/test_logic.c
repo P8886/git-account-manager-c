@@ -364,6 +364,16 @@ static void TestAtomicApplyRollback(void) {
     GetGlobalConfig(name, email);
     CHECK(strcmp(name, "After") == 0 && strcmp(email, "after@example.com") == 0,
           "valid apply updates Git identity");
+
+    CHECK(ApplyAccountSettings("NoHost", "no-host@example.com", key_utf8, NULL, 0),
+          "SSH key without hosts can still apply Git identity");
+    GetGlobalConfig(name, email);
+    CHECK(strcmp(name, "NoHost") == 0 && strcmp(email, "no-host@example.com") == 0,
+          "hostless SSH account updates Git identity");
+    current = ReadBytes(ssh_path, NULL);
+    CHECK(current && strstr(current, "Git Account Manager") == NULL,
+          "hostless SSH account clears the managed SSH block");
+    free(current);
 }
 
 static void TestKeyGeneration(void) {
