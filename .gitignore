@@ -7,6 +7,7 @@
 # 临时文件
 *.tmp
 *.bak
+*.log
 
 # IDE 配置
 .vscode/

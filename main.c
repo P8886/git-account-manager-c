@@ -20,6 +20,7 @@
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
+#define DWMWA_USE_IMMERSIVE_DARK_MODE_OLD 19
 #ifndef WM_DPICHANGED
 #define WM_DPICHANGED 0x02E0
 #endif
@@ -84,6 +85,7 @@ wchar_t g_identityDetail[512] = L"未配置";
 char g_globalName[NAME_LEN] = "";
 char g_globalEmail[EMAIL_LEN] = "";
 BOOL g_isLayingOut = FALSE;
+BOOL g_deferHostLayout = FALSE;
 BOOL g_configLoadFailed = FALSE;
 
 // 函数声明
@@ -271,6 +273,7 @@ void EnableVerticallyCenteredEdit(HWND edit) {
 
 void SetComboBoxClosedHeight(HWND combo, int targetHeight) {
     if (!combo || targetHeight <= 0) return;
+    SendMessageW(combo, CB_SETITEMHEIGHT, 0, DPI(28));
     RECT rect;
     if (!GetWindowRect(combo, &rect)) return;
     int currentHeight = rect.bottom - rect.top;
@@ -436,6 +439,15 @@ void EnableModernComboBox(HWND combo) {
     }
 }
 
+static void ClearComboEditSelection(HWND combo) {
+    COMBOBOXINFO info = {0};
+    info.cbSize = sizeof(info);
+    if (!combo || !GetComboBoxInfo(combo, &info) || !info.hwndItem ||
+        info.hwndItem == combo) return;
+    int textLength = GetWindowTextLengthW(info.hwndItem);
+    SendMessageW(info.hwndItem, EM_SETSEL, textLength, textLength);
+}
+
 // 删除指定索引的host控件（不能删除第一个初始控件）
 void RemoveHostControl(int index) {
     if (index < 1 || index >= hHostControlCount) return; // 不能删除第一个控件（index 0），只允许删除后续添加的控件
@@ -571,6 +583,7 @@ void LayoutMainWindow(BOOL resizeToContent) {
 }
 
 void RepositionLowerControls() {
+    if (g_deferHostLayout) return;
     LayoutMainWindow(TRUE);
 }
 
@@ -657,16 +670,31 @@ BOOL UpdateAccountHosts(Account* acc) {
 
 // 用账户中的hosts填充控件
 void PopulateHostControls(Account* acc) {
-    ClearHostControls();  // 清空现有控件，保留第一个初始控件
+    int targetControlCount = acc && acc->host_count > 0 ? acc->host_count : 1;
+    if (targetControlCount > 10) targetControlCount = 10;
+    BOOL structureChanged = targetControlCount != hHostControlCount;
 
-    // 设置第一个控件的内容
-    if (acc->host_count > 0 && hHostControls[0] != NULL) {
-        SetWindowTextW(hHostControls[0], U8ToW(acc->host_list[0]));
+    if (structureChanged) {
+        g_deferHostLayout = TRUE;
+        SendMessageW(hMainWnd, WM_SETREDRAW, FALSE, 0);
+        while (hHostControlCount > targetControlCount) {
+            RemoveHostControl(hHostControlCount - 1);
+        }
+        while (hHostControlCount < targetControlCount) {
+            AddHostControl(L"");
+        }
     }
 
-    // 添加其余的hosts（从第二个开始）
-    for (int i = 1; i < acc->host_count && i < 10; i++) {
-        AddHostControl(U8ToW(acc->host_list[i])); // 这将创建带删除按钮的控件
+    for (int i = 0; i < hHostControlCount; i++) {
+        LPCWSTR host = acc && i < acc->host_count ? U8ToW(acc->host_list[i]) : L"";
+        SetWindowTextW(hHostControls[i * 2], host);
+    }
+
+    if (structureChanged) {
+        g_deferHostLayout = FALSE;
+        LayoutMainWindow(TRUE);
+        SendMessageW(hMainWnd, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(hMainWnd, NULL, TRUE);
     }
 }
 
@@ -775,7 +803,21 @@ void UpdateStatus() {
 // 设置 DWM 沉浸式暗黑模式标题栏
 void SetTitleBarTheme(HWND hwnd, BOOL dark) {
     BOOL value = dark;
-    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
+    HRESULT result = DwmSetWindowAttribute(
+        hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
+    if (FAILED(result)) {
+        DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD,
+                              &value, sizeof(value));
+    }
+    SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                 SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    BOOL isActive = GetForegroundWindow() == hwnd || GetActiveWindow() == hwnd;
+    SendMessageW(hwnd, WM_NCACTIVATE, FALSE, 0);
+    SendMessageW(hwnd, WM_NCACTIVATE, isActive, 0);
+    RedrawWindow(hwnd, NULL, NULL,
+                 RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_UPDATENOW);
+    DwmFlush();
 }
 
 // --- 自定义消息框 (居中且支持暗黑模式) ---
@@ -1098,7 +1140,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hLblHostHint = CreateWindowW(L"STATIC", L"域名、IP 或 host:port", WS_CHILD | WS_VISIBLE,
             0, 0, 0, 0, hwnd, (HMENU)ID_LBL_HOST_HINT, NULL, NULL);
 
-        HWND firstHost = CreateWindowW(L"COMBOBOX", L"github.com", WS_CHILD | WS_VISIBLE |
+        HWND firstHost = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE |
             CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP,
             0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)ID_HOST_COMBO_PREFIX, NULL, NULL);
         const wchar_t* commonHosts[] = {L"github.com", L"gitlab.com", L"gitee.com", L"bitbucket.org"};
@@ -1234,6 +1276,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 EnableWindow(hBtnDelete, TRUE);
                 EnableWindow(hBtnSwitch, TRUE);
                 PopulateHostControls(acc);  // 填充hosts控件
+                ClearComboEditSelection(hSSH);
             }
         }
         else if (id == ID_HOST_DELETE_PREFIX) {
@@ -1252,7 +1295,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         else if (id == ID_BTN_NEW) {
             ClearForm();
-            SetWindowTextW(hHostControls[0], L"github.com");
             SetFocus(hName);
         }
         else if (id == ID_COMBO_SSH &&
