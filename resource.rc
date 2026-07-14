@@ -22,11 +22,11 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "FileDescription", "Git Account Manager\0"
-            VALUE "FileVersion", "1.4.0.0\0"
+            VALUE "FileVersion", "1.1.0.0\0"
             VALUE "InternalName", "GitAccountManager\0"
             VALUE "OriginalFilename", "GitAccountManager.exe\0"
             VALUE "ProductName", "Git Account Manager\0"
-            VALUE "ProductVersion", "1.4.0.0\0"
+            VALUE "ProductVersion", "1.1.0.0\0"
         END
     END
     BLOCK "VarFileInfo"
