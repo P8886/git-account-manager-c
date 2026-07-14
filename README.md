@@ -2,6 +2,17 @@
 
 一个纯 Win32 C 编写的轻量 Git 多账户切换工具。无需安装运行时，发布物只有一个 `GitAccountManager.exe`。
 
+## 界面预览
+
+<p align="center">
+  <img src="docs/images/overview-light.png" alt="浅色模式" width="49%">
+  <img src="docs/images/overview-dark.png" alt="深色模式" width="49%">
+</p>
+
+任务栏身份文字支持左键打开主界面，右键使用与托盘图标相同的菜单：
+
+![任务栏身份文字与右键菜单](docs/images/taskbar-identity-menu.png)
+
 ## 功能
 
 - 保存、编辑和删除最多 50 个 Git 账户。
@@ -72,8 +83,6 @@ build.bat
 ```
 
 `test.bat` 在临时目录运行隔离测试，不读取或修改真实的 `.gitconfig`、`.ssh/config` 和账户配置。测试覆盖 JSON 往返、大型 Git 配置保全、SSH 自定义块保全、Host/端口校验、外部及中文密钥路径、密钥生成，以及 Git/SSH 联合切换失败回滚。
-
-`build.bat` 会检查每个编译和链接步骤，并强制最终 EXE 不得超过 **5,242,880 字节（5 MiB）**。当前 v1.1.0 发布构建为 **176,128 字节（约 172 KiB）**，仍只依赖 Windows 系统 DLL。
 
 ## 主要文件
 
