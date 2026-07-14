@@ -1180,7 +1180,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         EnableModernComboBox(hSSH);
         EnableModernComboBox(firstHost);
 
-        TaskbarIdentityInitialize(&g_taskbarIdentity);
+        TaskbarIdentityInitialize(&g_taskbarIdentity, hwnd, WM_TRAY_IDENTITY);
         TrayIdentityInitialize(&g_trayIdentity, hwnd);
         LayoutMainWindow(FALSE);
         ApplyTheme(hwnd);

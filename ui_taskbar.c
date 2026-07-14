@@ -36,13 +36,41 @@ static void EnsureFont(TaskbarIdentity* identity, UINT dpi) {
 
 static LRESULT CALLBACK TaskbarIdentityProc(HWND window, UINT message,
                                              WPARAM wParam, LPARAM lParam) {
+    TaskbarIdentity* identity = (TaskbarIdentity*)GetWindowLongPtrW(
+        window, GWLP_USERDATA);
     switch (message) {
+    case WM_NCCREATE: {
+        CREATESTRUCTW* create = (CREATESTRUCTW*)lParam;
+        SetWindowLongPtrW(window, GWLP_USERDATA,
+                          (LONG_PTR)create->lpCreateParams);
+        return TRUE;
+    }
     case WM_ERASEBKGND:
         return 1;
     case WM_NCHITTEST:
-        return HTTRANSPARENT;
+        return HTCLIENT;
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
+    case WM_LBUTTONUP:
+        if (identity && identity->owner && identity->callback_message) {
+            PostMessageW(identity->owner, identity->callback_message,
+                         0, WM_LBUTTONUP);
+        }
+        return 0;
+    case WM_RBUTTONUP:
+    case WM_CONTEXTMENU:
+        if (identity && identity->owner && identity->callback_message) {
+            POINT cursor;
+            if (message == WM_CONTEXTMENU && (short)LOWORD(lParam) != -1) {
+                cursor.x = (short)LOWORD(lParam);
+                cursor.y = (short)HIWORD(lParam);
+            } else {
+                GetCursorPos(&cursor);
+            }
+            PostMessageW(identity->owner, identity->callback_message,
+                         MAKEWPARAM(cursor.x, cursor.y), WM_CONTEXTMENU);
+        }
+        return 0;
     case WM_PAINT: {
         PAINTSTRUCT paint;
         BeginPaint(window, &paint);
@@ -62,7 +90,7 @@ static BOOL RegisterTaskbarIdentityClass(void) {
     windowClass.lpfnWndProc = TaskbarIdentityProc;
     windowClass.hInstance = instance;
     windowClass.lpszClassName = TASKBAR_IDENTITY_CLASS;
-    windowClass.hCursor = LoadCursorW(NULL, MAKEINTRESOURCEW(32512));
+    windowClass.hCursor = LoadCursorW(NULL, MAKEINTRESOURCEW(32649));
     return RegisterClassW(&windowClass) != 0;
 }
 
@@ -307,17 +335,20 @@ void TaskbarIdentityReposition(TaskbarIdentity* identity) {
                  SWP_SHOWWINDOW | SWP_NOSENDCHANGING);
 }
 
-void TaskbarIdentityInitialize(TaskbarIdentity* identity) {
+void TaskbarIdentityInitialize(TaskbarIdentity* identity, HWND owner,
+                               UINT callbackMessage) {
     if (!identity) return;
     ZeroMemory(identity, sizeof(*identity));
+    identity->owner = owner;
+    identity->callback_message = callbackMessage;
     wcscpy(identity->text, L"当前全局 Git 账号：未配置");
     identity->taskbar_created_message = RegisterWindowMessageW(L"TaskbarCreated");
     if (!RegisterTaskbarIdentityClass()) return;
     identity->taskbar = FindWindowW(L"Shell_TrayWnd", NULL);
     identity->window = CreateWindowExW(
-        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
+        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
         TASKBAR_IDENTITY_CLASS, L"", WS_POPUP,
-        0, 0, 0, 0, NULL, NULL, GetModuleHandleW(NULL), NULL);
+        0, 0, 0, 0, NULL, NULL, GetModuleHandleW(NULL), identity);
 }
 
 void TaskbarIdentitySetEnabled(TaskbarIdentity* identity, BOOL enabled) {
