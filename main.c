@@ -407,17 +407,22 @@ void LayoutMainWindow(BOOL resizeToContent) {
     int actionsY = hostY + hostRow * hHostControlCount + DPI(8);
     int requiredClientHeight = actionsY + ctrlH + DPI(16) + statusH + margin;
 
-    if (resizeToContent && client.bottom < requiredClientHeight) {
+    if (resizeToContent) {
         RECT windowRect;
         GetWindowRect(hMainWnd, &windowRect);
         int nonClient = (windowRect.bottom - windowRect.top) - client.bottom;
-        SetWindowPos(hMainWnd, NULL, 0, 0, windowRect.right - windowRect.left,
-                     requiredClientHeight + nonClient,
-                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-        GetClientRect(hMainWnd, &client);
-        clientWidth = client.right;
-        rightWidth = clientWidth - rightX - margin;
-        fieldWidth = (rightWidth - fieldGap) / 2;
+        int targetWindowHeight = requiredClientHeight + nonClient;
+        if (targetWindowHeight < DPI(520)) targetWindowHeight = DPI(520);
+        if (windowRect.bottom - windowRect.top != targetWindowHeight) {
+            SetWindowPos(hMainWnd, NULL, 0, 0,
+                         windowRect.right - windowRect.left,
+                         targetWindowHeight,
+                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+            GetClientRect(hMainWnd, &client);
+            clientWidth = client.right;
+            rightWidth = clientWidth - rightX - margin;
+            fieldWidth = (rightWidth - fieldGap) / 2;
+        }
     }
 
     int statusY = client.bottom - margin - statusH;
@@ -481,14 +486,19 @@ void LayoutMainWindow(BOOL resizeToContent) {
 
 void RepositionLowerControls() {
     if (g_deferHostLayout) return;
+    SendMessageW(hMainWnd, WM_SETREDRAW, FALSE, 0);
     LayoutMainWindow(TRUE);
+    SendMessageW(hMainWnd, WM_SETREDRAW, TRUE, 0);
+    RedrawWindow(hMainWnd, NULL, NULL,
+                 RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN |
+                 RDW_UPDATENOW);
 }
 
 // 添加一个host控件（下拉框+删除按钮）
 void AddHostControl(const wchar_t* initialHost) {
     if (hHostControlCount >= 10) return;  // 限制最大数量，包括初始的1个
     int index = hHostControlCount;
-    HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE |
+    HWND hCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD |
         CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP,
         0, 0, DPI(200), DPI(180), hMainWnd, (HMENU)(INT_PTR)(ID_HOST_COMBO_PREFIX + index), NULL, NULL);
     // 添加常见的Git服务
@@ -500,7 +510,7 @@ void AddHostControl(const wchar_t* initialHost) {
         SetWindowTextW(hCombo, initialHost);
     }
 
-    HWND hDeleteBtn = CreateWindowW(L"BUTTON", L"–", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 
+    HWND hDeleteBtn = CreateWindowW(L"BUTTON", L"–", WS_CHILD | BS_OWNERDRAW | WS_TABSTOP,
         0, 0, DPI(32), DPI(UI_CONTROL_HEIGHT), hMainWnd, (HMENU)(INT_PTR)ID_HOST_DELETE_PREFIX, NULL, NULL);
 
     hHostControls[index * 2] = hCombo;
@@ -514,7 +524,11 @@ void AddHostControl(const wchar_t* initialHost) {
 
     RepositionLowerControls();
     SetComboBoxClosedHeight(hCombo, DPI(UI_CONTROL_HEIGHT));
-    ClearAllComboEditSelections();
+    if (!g_deferHostLayout) {
+        ShowWindow(hCombo, SW_SHOW);
+        ShowWindow(hDeleteBtn, SW_SHOW);
+        ClearAllComboEditSelections();
+    }
 }
 
 // 清空所有host控件，保留第一个初始控件
@@ -591,8 +605,15 @@ void PopulateHostControls(Account* acc) {
     if (structureChanged) {
         g_deferHostLayout = FALSE;
         LayoutMainWindow(TRUE);
+        for (int i = 1; i < hHostControlCount; i++) {
+            ShowWindow(hHostControls[i * 2], SW_SHOW);
+            ShowWindow(hHostControls[i * 2 + 1], SW_SHOW);
+        }
         SendMessageW(hMainWnd, WM_SETREDRAW, TRUE, 0);
-        InvalidateRect(hMainWnd, NULL, TRUE);
+        RedrawWindow(hMainWnd, NULL, NULL,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN |
+                     RDW_UPDATENOW);
+        ClearAllComboEditSelections();
     }
 }
 
