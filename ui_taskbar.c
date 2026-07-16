@@ -264,7 +264,7 @@ static BOOL RenderTaskbarText(TaskbarIdentity* identity, int x, int y,
         bytes[i * 4] = coverage;
         bytes[i * 4 + 1] = coverage;
         bytes[i * 4 + 2] = coverage;
-        bytes[i * 4 + 3] = coverage;
+        bytes[i * 4 + 3] = coverage ? coverage : 1;
     }
 
     POINT destination = {x, y};
