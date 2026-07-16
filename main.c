@@ -171,8 +171,7 @@ static HFONT CreateUiFont(int points, int weight) {
 }
 
 #define CENTERED_EDIT_PROC_PROP L"GAM_CenteredEditOriginalProc"
-#define MODERN_COMBO_PROC_PROP L"GAM_ModernComboOriginalProc"
-#define MODERN_COMBO_EDIT_PROC_PROP L"GAM_ModernComboEditOriginalProc"
+#define COMBO_EDIT_PROC_PROP L"GAM_ComboEditOriginalProc"
 
 static void SetRoundedControlRegion(HWND control, int radius) {
     if (!control || radius <= 0) return;
@@ -286,156 +285,46 @@ void SetComboBoxClosedHeight(HWND combo, int targetHeight) {
     }
 }
 
-static WNDPROC GetOriginalComboProc(HWND combo) {
-    LONG_PTR value = (LONG_PTR)GetPropW(combo, MODERN_COMBO_PROC_PROP);
-    WNDPROC proc = NULL;
-    memcpy(&proc, &value, sizeof(proc));
-    return proc;
-}
-
 static WNDPROC GetOriginalComboEditProc(HWND edit) {
-    LONG_PTR value = (LONG_PTR)GetPropW(edit, MODERN_COMBO_EDIT_PROC_PROP);
+    LONG_PTR value = (LONG_PTR)GetPropW(edit, COMBO_EDIT_PROC_PROP);
     WNDPROC proc = NULL;
     memcpy(&proc, &value, sizeof(proc));
     return proc;
 }
 
-static void PaintComboEditEdges(HWND edit) {
-    RECT client;
-    if (!edit || !GetClientRect(edit, &client)) return;
-    HDC dc = GetDC(edit);
-    if (!dc) return;
-    const UI_PALETTE* palette = GetUiPalette(isDarkMode);
-    HBRUSH brush = CreateSolidBrush(palette->surface);
-    int edge = DPI(1) + 1;
-    RECT strip = {client.left, client.top, client.right, client.top + edge};
-    FillRect(dc, &strip, brush);
-    strip.top = client.bottom - edge;
-    strip.bottom = client.bottom;
-    FillRect(dc, &strip, brush);
-    strip.left = client.left;
-    strip.top = client.top;
-    strip.right = client.left + edge;
-    FillRect(dc, &strip, brush);
-    DeleteObject(brush);
-    ReleaseDC(edit, dc);
-}
-
-static LRESULT CALLBACK ModernComboEditProc(HWND edit, UINT message,
-                                            WPARAM wParam, LPARAM lParam) {
+static LRESULT CALLBACK ComboEditProc(HWND edit, UINT message,
+                                      WPARAM wParam, LPARAM lParam) {
     WNDPROC original = GetOriginalComboEditProc(edit);
     if (!original) return DefWindowProcW(edit, message, wParam, lParam);
     LRESULT result = CallWindowProcW(original, edit, message, wParam, lParam);
-    if (message == WM_PAINT || message == WM_NCPAINT ||
-        message == WM_SETFOCUS || message == WM_KILLFOCUS) {
-        PaintComboEditEdges(edit);
+    if (message == WM_SETTEXT) {
+        int textLength = GetWindowTextLengthW(edit);
+        SendMessageW(edit, EM_SETSEL, textLength, textLength);
     }
     if (message == WM_NCDESTROY) {
-        RemovePropW(edit, MODERN_COMBO_EDIT_PROC_PROP);
+        RemovePropW(edit, COMBO_EDIT_PROC_PROP);
     }
     return result;
 }
 
-static void EnableModernComboEdit(HWND edit) {
-    if (!edit || GetPropW(edit, MODERN_COMBO_EDIT_PROC_PROP)) return;
-    WNDPROC modern = ModernComboEditProc;
-    LONG_PTR modernValue = 0;
-    memcpy(&modernValue, &modern, sizeof(modern));
-    LONG_PTR original = SetWindowLongPtrW(edit, GWLP_WNDPROC, modernValue);
+static void EnableComboEditBehavior(HWND edit) {
+    if (!edit || GetPropW(edit, COMBO_EDIT_PROC_PROP)) return;
+    WNDPROC comboEdit = ComboEditProc;
+    LONG_PTR comboEditValue = 0;
+    memcpy(&comboEditValue, &comboEdit, sizeof(comboEdit));
+    LONG_PTR original = SetWindowLongPtrW(edit, GWLP_WNDPROC, comboEditValue);
     if (original) {
-        SetPropW(edit, MODERN_COMBO_EDIT_PROC_PROP, (HANDLE)original);
+        SetPropW(edit, COMBO_EDIT_PROC_PROP, (HANDLE)original);
         InvalidateRect(edit, NULL, TRUE);
     }
 }
 
-static void PaintComboArrow(HWND combo) {
-    RECT client;
-    if (!combo || !GetClientRect(combo, &client) || client.right <= 0) return;
-    HDC dc = GetDC(combo);
-    if (!dc) return;
-
-    const UI_PALETTE* palette = GetUiPalette(isDarkMode);
-    BOOL dropped = (BOOL)SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0);
-    int arrowWidth = DPI(20);
-    RECT button = client;
-    button.left = button.right - arrowWidth;
-    button.top += 1;
-    button.right -= 1;
-    button.bottom -= 1;
-    HBRUSH background = CreateSolidBrush(
-        dropped ? palette->surfacePressed : palette->surface);
-    FillRect(dc, &button, background);
-    DeleteObject(background);
-
-    HPEN divider = CreatePen(PS_SOLID, 1, palette->border);
-    HGDIOBJ oldPen = SelectObject(dc, divider);
-    MoveToEx(dc, button.left, button.top, NULL);
-    LineTo(dc, button.left, button.bottom);
-    SelectObject(dc, oldPen);
-    DeleteObject(divider);
-
-    int centerX = button.left + (button.right - button.left) / 2;
-    int centerY = button.top + (button.bottom - button.top) / 2;
-    int half = DPI(3);
-    HPEN chevron = CreatePen(PS_SOLID, 1, palette->textSecondary);
-    oldPen = SelectObject(dc, chevron);
-    MoveToEx(dc, centerX - half, centerY - DPI(1), NULL);
-    LineTo(dc, centerX, centerY + DPI(2));
-    LineTo(dc, centerX + half + 1, centerY - DPI(1));
-    SelectObject(dc, oldPen);
-    DeleteObject(chevron);
-
-    HPEN outline = CreatePen(PS_SOLID, 1, palette->border);
-    HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
-    oldPen = SelectObject(dc, outline);
-    RoundRect(dc, client.left, client.top, client.right - 1,
-              client.bottom - 1, DPI(8), DPI(8));
-    SelectObject(dc, oldPen);
-    SelectObject(dc, oldBrush);
-    DeleteObject(outline);
-    ReleaseDC(combo, dc);
-}
-
-static LRESULT CALLBACK ModernComboProc(HWND combo, UINT message,
-                                        WPARAM wParam, LPARAM lParam) {
-    WNDPROC original = GetOriginalComboProc(combo);
-    if (!original) return DefWindowProcW(combo, message, wParam, lParam);
-    LRESULT result = CallWindowProcW(original, combo, message, wParam, lParam);
-    if (message == WM_SIZE) SetRoundedControlRegion(combo, DPI(4));
-    if (message == WM_PAINT || message == WM_NCPAINT ||
-        message == WM_SETFOCUS || message == WM_KILLFOCUS ||
-        message == WM_ENABLE || message == CB_SHOWDROPDOWN) {
-        PaintComboArrow(combo);
-    }
-    if (message == WM_NCDESTROY) RemovePropW(combo, MODERN_COMBO_PROC_PROP);
-    return result;
-}
-
-void EnableModernComboBox(HWND combo) {
-    if (!combo || GetPropW(combo, MODERN_COMBO_PROC_PROP)) return;
-    WNDPROC modern = ModernComboProc;
-    LONG_PTR modernValue = 0;
-    memcpy(&modernValue, &modern, sizeof(modern));
-    LONG_PTR original = SetWindowLongPtrW(combo, GWLP_WNDPROC, modernValue);
-    if (original) {
-        SetPropW(combo, MODERN_COMBO_PROC_PROP, (HANDLE)original);
-        COMBOBOXINFO info = {0};
-        info.cbSize = sizeof(info);
-        if (GetComboBoxInfo(combo, &info) && info.hwndItem &&
-            info.hwndItem != combo) {
-            LONG_PTR style = GetWindowLongPtrW(info.hwndItem, GWL_STYLE);
-            LONG_PTR exStyle = GetWindowLongPtrW(info.hwndItem, GWL_EXSTYLE);
-            SetWindowLongPtrW(info.hwndItem, GWL_STYLE, style & ~WS_BORDER);
-            SetWindowLongPtrW(info.hwndItem, GWL_EXSTYLE,
-                              exStyle & ~WS_EX_CLIENTEDGE);
-            MySetWindowTheme(info.hwndItem, L"", L"");
-            EnableModernComboEdit(info.hwndItem);
-            SetWindowPos(info.hwndItem, NULL, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
-                         SWP_NOACTIVATE | SWP_FRAMECHANGED);
-        }
-        SetRoundedControlRegion(combo, DPI(4));
-        InvalidateRect(combo, NULL, TRUE);
+void EnableComboBoxEditBehavior(HWND combo) {
+    COMBOBOXINFO info = {0};
+    info.cbSize = sizeof(info);
+    if (combo && GetComboBoxInfo(combo, &info) && info.hwndItem &&
+        info.hwndItem != combo) {
+        EnableComboEditBehavior(info.hwndItem);
     }
 }
 
@@ -612,8 +501,8 @@ void AddHostControl(const wchar_t* initialHost) {
 
     SendMessageW(hCombo, WM_SETFONT, (WPARAM)hGlobalFont, TRUE);
     SendMessageW(hDeleteBtn, WM_SETFONT, (WPARAM)hGlobalFont, TRUE);
-    EnableModernComboBox(hCombo);
-    MySetWindowTheme(hCombo, isDarkMode ? L"DarkMode_Explorer" : NULL, NULL);
+    EnableComboBoxEditBehavior(hCombo);
+    MySetWindowTheme(hCombo, isDarkMode ? L"DarkMode_CFD" : NULL, NULL);
 
     RepositionLowerControls();
     SetComboBoxClosedHeight(hCombo, DPI(UI_CONTROL_HEIGHT));
@@ -1019,12 +908,15 @@ void ApplyTheme(HWND hwnd) {
     }
     UpdateTaskbarButtonLabel();
 
-    // ListBox 和 ComboBox 使用 DarkMode_Explorer 主题（获得暗色滚动条和下拉列表）
-    LPCWSTR theme = isDarkMode ? L"DarkMode_Explorer" : NULL;
-    MySetWindowTheme(hList, theme, NULL);
-    MySetWindowTheme(hSSH, theme, NULL);
+    // ListBox 和 ComboBox 分别使用适配自身控件类型的暗色主题。
+    LPCWSTR listTheme = isDarkMode ? L"DarkMode_Explorer" : NULL;
+    LPCWSTR comboTheme = isDarkMode ? L"DarkMode_CFD" : NULL;
+    MySetWindowTheme(hList, listTheme, NULL);
+    MySetWindowTheme(hSSH, comboTheme, NULL);
     for (int i = 0; i < hHostControlCount; i++) {
-        if (hHostControls[i * 2]) MySetWindowTheme(hHostControls[i * 2], theme, NULL);
+        if (hHostControls[i * 2]) {
+            MySetWindowTheme(hHostControls[i * 2], comboTheme, NULL);
+        }
     }
     // 切换按钮样式 (OwnerDraw) - 始终启用 OwnerDraw 以保持圆角风格一致
     int btnIds[] = {ID_BTN_BROWSE, ID_BTN_SAVE, ID_BTN_DELETE, ID_BTN_SWITCH,
@@ -1177,8 +1069,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         MySetWindowTheme(hEmail, L"", L"");
         EnableVerticallyCenteredEdit(hName);
         EnableVerticallyCenteredEdit(hEmail);
-        EnableModernComboBox(hSSH);
-        EnableModernComboBox(firstHost);
+        EnableComboBoxEditBehavior(hSSH);
+        EnableComboBoxEditBehavior(firstHost);
 
         TaskbarIdentityInitialize(&g_taskbarIdentity, hwnd, WM_TRAY_IDENTITY);
         TrayIdentityInitialize(&g_trayIdentity, hwnd);

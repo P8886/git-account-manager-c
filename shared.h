@@ -36,6 +36,6 @@ void MySetWindowTheme(HWND hwnd, LPCWSTR subAppName, LPCWSTR subIdList);
 int ShowMessage(HWND owner, LPCWSTR text, LPCWSTR title, UINT type);
 BOOL CALLBACK SetChildFont(HWND hwndChild, LPARAM lParam);
 void SetComboBoxClosedHeight(HWND combo, int targetHeight);
-void EnableModernComboBox(HWND combo);
+void EnableComboBoxEditBehavior(HWND combo);
 void EnableVerticallyCenteredEdit(HWND edit);
 void CenterEditText(HWND edit);

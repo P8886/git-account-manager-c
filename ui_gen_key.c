@@ -89,7 +89,7 @@ LRESULT CALLBACK GenKeyDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         SendMessageW(hCombo, CB_SETCURSEL, 0, 0); // 默认选中 ed25519
         MySetWindowTheme(GetDlgItem(hwnd, ID_GEN_EDIT_NAME), L"", L"");
         MySetWindowTheme(GetDlgItem(hwnd, ID_GEN_EDIT_EMAIL), L"", L"");
-        MySetWindowTheme(hCombo, isDarkMode ? L"DarkMode_Explorer" : NULL, NULL);
+        MySetWindowTheme(hCombo, isDarkMode ? L"DarkMode_CFD" : NULL, NULL);
 
         y += h + DPI(22);
 
@@ -109,7 +109,6 @@ LRESULT CALLBACK GenKeyDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         EnumChildWindows(hwnd, SetChildFont, (LPARAM)hGlobalFont);
         EnableVerticallyCenteredEdit(GetDlgItem(hwnd, ID_GEN_EDIT_NAME));
         EnableVerticallyCenteredEdit(GetDlgItem(hwnd, ID_GEN_EDIT_EMAIL));
-        EnableModernComboBox(hCombo);
         SetComboBoxClosedHeight(hCombo, h);
         SetTitleBarTheme(hwnd, isDarkMode);
         break;
