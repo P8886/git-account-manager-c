@@ -337,6 +337,13 @@ static void ClearComboEditSelection(HWND combo) {
     SendMessageW(info.hwndItem, EM_SETSEL, textLength, textLength);
 }
 
+static void ClearAllComboEditSelections(void) {
+    ClearComboEditSelection(hSSH);
+    for (int i = 0; i < hHostControlCount; i++) {
+        ClearComboEditSelection(hHostControls[i * 2]);
+    }
+}
+
 // 删除指定索引的host控件（不能删除第一个初始控件）
 void RemoveHostControl(int index) {
     if (index < 1 || index >= hHostControlCount) return; // 不能删除第一个控件（index 0），只允许删除后续添加的控件
@@ -362,6 +369,7 @@ void RemoveHostControl(int index) {
 
     // 重新定位下方的控件
     RepositionLowerControls();
+    ClearAllComboEditSelections();
 }
 
 void LayoutMainWindow(BOOL resizeToContent) {
@@ -506,6 +514,7 @@ void AddHostControl(const wchar_t* initialHost) {
 
     RepositionLowerControls();
     SetComboBoxClosedHeight(hCombo, DPI(UI_CONTROL_HEIGHT));
+    ClearAllComboEditSelections();
 }
 
 // 清空所有host控件，保留第一个初始控件
@@ -946,6 +955,7 @@ void ApplyTheme(HWND hwnd) {
     for (int i = 0; i < hHostControlCount; i++) {
         SetComboBoxClosedHeight(hHostControls[i * 2], DPI(UI_CONTROL_HEIGHT));
     }
+    ClearAllComboEditSelections();
     UpdateIdentitySurfaces();
 }
 
