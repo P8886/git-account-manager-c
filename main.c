@@ -910,11 +910,8 @@ static void RestoreMainWindow(HWND hwnd) {
 
 static void UpdateTaskbarButtonLabel(void) {
     if (!hBtnTaskbar) return;
-    LPCWSTR text = L"任务栏提醒 · 关";
-    if (config.show_identity_badge) {
-        text = config.show_taskbar_text
-            ? L"任务栏提醒 · 文字" : L"任务栏提醒 · 图标";
-    }
+    LPCWSTR text = config.show_identity_badge
+        ? L"后台常驻 · 开" : L"后台常驻 · 关";
     SetWindowTextW(hBtnTaskbar, text);
     InvalidateRect(hBtnTaskbar, NULL, TRUE);
 }
@@ -1086,7 +1083,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         EnableWindow(hBtnSwitch, FALSE);
         hStatus = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
             0, 0, 0, 0, hwnd, (HMENU)ID_STATUS, NULL, NULL);
-        hBtnTaskbar = CreateWindowW(L"BUTTON", L"任务栏提醒 · 关", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP,
+        hBtnTaskbar = CreateWindowW(L"BUTTON", L"后台常驻 · 关", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP,
             0, 0, 0, 0, hwnd, (HMENU)ID_BTN_TASKBAR, NULL, NULL);
 
         EnumChildWindows(hwnd, SetChildFont, (LPARAM)hGlobalFont);
@@ -1301,14 +1298,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             config.show_identity_badge = !config.show_identity_badge;
             if (!SaveConfig(&config)) {
                 config.show_identity_badge = !config.show_identity_badge;
-                ShowMessage(hwnd, L"无法保存任务栏提醒设置", L"保存失败", MB_OK);
+                ShowMessage(hwnd, L"无法保存后台常驻设置", L"保存失败", MB_OK);
                 break;
             }
             ApplyTaskbarReminderState(hwnd);
             if (config.show_identity_badge) {
                 ShowMessage(hwnd,
-                    L"任务栏图标已开启。\n悬停可查看完整账号，右键可切换白字显示。",
-                    L"任务栏提醒已开启", MB_OK);
+                    L"任务栏图标已开启。\n左键可打开主界面，右键可切换任务栏文字显示。",
+                    L"后台常驻已开启", MB_OK);
             }
         }
         else if (id == ID_BTN_CANCEL) {
