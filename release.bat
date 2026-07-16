@@ -25,7 +25,12 @@ if defined DIRTY (
     goto :fail
 )
 
-set /p "VERSION=请输入版本号（例如 1.1.1）："
+for /f "tokens=3" %%I in ('findstr /B /C:"#define APP_VERSION_MAJOR " resource.h') do set "CURRENT_VERSION_MAJOR=%%I"
+for /f "tokens=3" %%I in ('findstr /B /C:"#define APP_VERSION_MINOR " resource.h') do set "CURRENT_VERSION_MINOR=%%I"
+for /f "tokens=3" %%I in ('findstr /B /C:"#define APP_VERSION_PATCH " resource.h') do set "CURRENT_VERSION_PATCH=%%I"
+set "CURRENT_VERSION=!CURRENT_VERSION_MAJOR!.!CURRENT_VERSION_MINOR!.!CURRENT_VERSION_PATCH!"
+
+set /p "VERSION=请输入版本号（上一版本 !CURRENT_VERSION!）："
 if /I "!VERSION:~0,1!"=="v" set "VERSION=!VERSION:~1!"
 set "RELEASE_VERSION=!VERSION!"
 
