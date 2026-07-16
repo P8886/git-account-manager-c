@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install MinGW-w64
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc
+
+      - name: Add MinGW-w64 to PATH
+        shell: pwsh
+        run: |
+          $toolchain = Join-Path '${{ steps.msys2.outputs.msys2-location }}' 'mingw64\bin'
+          if (-not (Test-Path (Join-Path $toolchain 'gcc.exe'))) {
+            throw "gcc.exe was not found in $toolchain"
+          }
+          $toolchain | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Verify release version
+        shell: pwsh
+        run: |
+          $header = Get-Content resource.h -Raw
+          $major = [regex]::Match($header, '#define\s+APP_VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($header, '#define\s+APP_VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [regex]::Match($header, '#define\s+APP_VERSION_PATCH\s+(\d+)').Groups[1].Value
+          if (-not $major -or -not $minor -or -not $patch) {
+            throw 'Unable to read the application version from resource.h'
+          }
+
+          $expectedTag = "v$major.$minor.$patch"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Tag $env:GITHUB_REF_NAME does not match application version $expectedTag"
+          }
+
+          $resource = Get-Content resource.rc -Raw
+          $expectedFileVersion = "$major.$minor.$patch.0"
+          if ($resource -notmatch [regex]::Escape($expectedFileVersion)) {
+            throw "resource.rc does not contain version $expectedFileVersion"
+          }
+
+      - name: Run isolated tests
+        shell: cmd
+        run: test.bat
+
+      - name: Build executable
+        shell: cmd
+        run: build.bat
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME GitAccountManager.exe `
+            --verify-tag `
+            --generate-notes `
+            --title $env:GITHUB_REF_NAME
